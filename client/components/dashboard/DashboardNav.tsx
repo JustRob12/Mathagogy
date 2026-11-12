@@ -57,11 +57,10 @@ export default function DashboardNav({ user, profile }: DashboardNavProps) {
           <div className="flex items-center gap-1 bg-white/10 p-1 rounded-xl backdrop-blur-md border border-white/15">
             <Link
               href="/dashboard"
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                pathname === '/dashboard'
-                  ? 'bg-white text-emerald-900 shadow-sm'
-                  : 'text-white/80 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${pathname === '/dashboard'
+                ? 'bg-white text-emerald-900 shadow-sm'
+                : 'text-white/80 hover:text-white'
+                }`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l9-5-9-5-9 5 9 5z" />
@@ -71,11 +70,10 @@ export default function DashboardNav({ user, profile }: DashboardNavProps) {
             </Link>
             <Link
               href="/admin"
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                pathname.startsWith('/admin')
-                  ? 'bg-white text-emerald-900 shadow-sm'
-                  : 'text-white/80 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${pathname.startsWith('/admin')
+                ? 'bg-white text-emerald-900 shadow-sm'
+                : 'text-white/80 hover:text-white'
+                }`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -89,9 +87,8 @@ export default function DashboardNav({ user, profile }: DashboardNavProps) {
         <div className="flex items-center gap-2.5 sm:gap-4">
           <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md pl-1.5 pr-2.5 sm:pr-3 py-1 rounded-full border border-white/15">
             <div
-              className={`w-7 h-7 rounded-full text-white flex items-center justify-center font-bold text-xs shadow-sm ${
-                isAdmin ? 'bg-amber-500' : 'bg-emerald-500'
-              }`}
+              className={`w-7 h-7 rounded-full text-white flex items-center justify-center font-bold text-xs shadow-sm ${isAdmin ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}
             >
               {initial}
             </div>
