@@ -1,13 +1,21 @@
 import rawData from '@/data/assessments.json'
 
+export type CognitiveSkill = 'Remembering' | 'Understanding' | 'Applying'
+
 export interface Question {
   id: number
   question: string
-  options: string[]
-  correctIndex: number
   answer: string
   topic: string
+  cognitiveSkill: CognitiveSkill
   youtubeLinks: string[]
+  options?: string[]
+}
+
+export interface AlignedLikertStatement {
+  id: number
+  topic: string
+  statement: string
 }
 
 export interface Assessment {
@@ -16,13 +24,23 @@ export interface Assessment {
   term: 'Term 1' | 'Term 2' | 'Term 3'
   title: string
   totalQuestions: number
+  alignedLikertStatements: AlignedLikertStatement[]
   questions: Question[]
 }
 
 export interface LikertOption {
   value: number
   label: string
+  color: string
 }
+
+export const LIKERT_RESPONSE_SCALE: LikertOption[] = [
+  { value: 5, label: 'Strongly Agree', color: '#15803d' }, // Deep green
+  { value: 4, label: 'Agree', color: '#22c55e' },          // Light green
+  { value: 3, label: 'Neutral', color: '#64748b' },        // Slate neutral
+  { value: 2, label: 'Disagree', color: '#f97316' },       // Orange
+  { value: 1, label: 'Strongly Disagree', color: '#ef4444' }, // Red
+]
 
 export interface LikertQuestion {
   id: number
@@ -35,14 +53,33 @@ export interface LikertScale {
   id: string
   title: string
   totalQuestions: number
-  options: LikertOption[]
+  options: { value: number; label: string }[]
   questions: LikertQuestion[]
 }
 
-export interface WeakTopic {
+export interface TOSSkillStats {
+  skill: CognitiveSkill
+  correct: number
+  total: number
+  percentage: number
+  topics: string[]
+}
+
+export type SeverityLevel = 'Critical' | 'Moderate' | 'Mastered'
+
+export interface TopicAssessmentResult {
   topic: string
-  incorrectCount: number
-  totalCount: number
+  correct: number
+  total: number
+  percentage: number
+  severity: SeverityLevel
+  severityLabel: string
+  cognitiveSkills: CognitiveSkill[]
+  perceivedRating: number // 1 - 5 from Likert
+  perceivedInterpretation: string
+  quadrant: 'Blind Spot' | 'Underconfident' | 'Confirmed Learning Gap' | 'Mastered Competency'
+  quadrantAnalysis: string
+  studyTip: string
   youtubeLinks: string[]
 }
 
@@ -51,15 +88,16 @@ export interface DiagnosticResult {
   total: number
   percentage: number
   passed: boolean
-  weakTopics: WeakTopic[]
+  tosStats: Record<CognitiveSkill, TOSSkillStats>
+  topicResults: TopicAssessmentResult[]
+  likertResponses: Record<number, number>
+  averageLikertRating: number
   userAnswers: {
     questionId: number
-    selectedOption: string
-    selectedIndex: number
-    correctOption: string
-    correctIndex: number
+    userAnswer: string
     isCorrect: boolean
     topic: string
+    cognitiveSkill: CognitiveSkill
   }[]
 }
 
@@ -85,8 +123,10 @@ export interface AssessmentAttempt {
   percentage: number
   passed: boolean
   answers: any
-  weak_topics: WeakTopic[]
+  weak_topics?: any
   category_scores?: any
+  tos_stats?: any
+  topic_results?: any
   completed_at: string
 }
 
@@ -104,65 +144,281 @@ export function getAssessmentById(id: string): Assessment | undefined {
   return ALL_ASSESSMENTS.find((a) => a.id === id)
 }
 
+/**
+ * Text normalization for direct open-ended question grading
+ */
+export function normalizeAnswer(text: string): string {
+  if (!text) return ''
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[,\.]+\s*$/, '') // remove trailing dot or comma
+    .replace(/\s+/g, ' ')
+}
+
+export function stripUnits(text: string): string {
+  if (!text) return ''
+  return text
+    .toLowerCase()
+    .replace(/,/g, '') // remove thousands commas (e.g. 1,200 -> 1200)
+    .replace(
+      /\b(degrees|degree|deg|°|sides|side|meters|meter|m|centimeters|centimeter|cm|square cm|sq cm|cubic cm|cu cm|cubic meters|grams|gram|g|kilograms|kilogram|kg|milliliters|milliliter|ml|liters|liter|l|pesos|peso|cups|cup|inches|inch|feet|ft|pounds|lbs|miles|mile|km|approx|approximately|square|cubic|units|unit|terms|term)\b/g,
+      ''
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Intelligent flexible answer evaluation:
+ * Supports case insensitivity, number equivalence, unit tolerance,
+ * and alternative forms (e.g., "11.31" vs "8sqrt(2) cm, or approximately 11.31 cm").
+ */
+export function evaluateAnswer(userRaw: string, canonicalRaw: string): boolean {
+  const userNorm = normalizeAnswer(userRaw)
+  const canonNorm = normalizeAnswer(canonicalRaw)
+
+  if (!userNorm) return false
+  if (userNorm === canonNorm) return true
+
+  // Strip polygon or polygon variants
+  const stripPoly = (s: string) => s.replace(/\s+polygon\b/g, '').replace(/-/g, ' ').trim()
+  if (stripPoly(userNorm) === stripPoly(canonNorm)) return true
+
+  // Split alternatives in canonical (e.g. '8sqrt(2) cm, or approximately 11.31 cm')
+  const alternatives = canonNorm
+    .split(/[,;]|\bor\b/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  alternatives.push(canonNorm)
+
+  for (const alt of alternatives) {
+    if (userNorm === alt) return true
+    if (stripPoly(userNorm) === stripPoly(alt)) return true
+
+    const cleanUser = stripUnits(userNorm)
+    const cleanAlt = stripUnits(alt)
+
+    if (cleanUser && cleanUser === cleanAlt) return true
+
+    // Compare numeric values
+    const numUser = parseFloat(cleanUser.replace(/[^\d.-]/g, ''))
+    const numAlt = parseFloat(cleanAlt.replace(/[^\d.-]/g, ''))
+    if (!isNaN(numUser) && !isNaN(numAlt)) {
+      if (Math.abs(numUser - numAlt) < 0.05) return true
+    }
+  }
+
+  return false
+}
+
+export function getLikertInterpretation(rating: number): string {
+  if (rating >= 4.5) return 'Strongly Agree'
+  if (rating >= 3.5) return 'Agree'
+  if (rating >= 2.5) return 'Neutral'
+  if (rating >= 1.5) return 'Disagree'
+  return 'Strongly Disagree'
+}
+
+/**
+ * Grade diagnostic test with TOS and Likert comparison
+ */
 export function gradeDiagnostic(
   assessment: Assessment,
-  selectedIndices: Record<number, number>
+  userAnswersMap: Record<number, string>,
+  likertResponses: Record<number, number> = {}
 ): DiagnosticResult {
-  let score = 0
+  let totalScore = 0
+
+  // TOS Tracking
+  const tosStats: Record<CognitiveSkill, { correct: number; total: number; topics: Set<string> }> = {
+    Remembering: { correct: 0, total: 0, topics: new Set() },
+    Understanding: { correct: 0, total: 0, topics: new Set() },
+    Applying: { correct: 0, total: 0, topics: new Set() },
+  }
+
+  // Topic Tracking
   const topicMap: Record<
     string,
-    { incorrect: number; total: number; urls: string[] }
+    {
+      correct: number
+      total: number
+      cognitiveSkills: Set<CognitiveSkill>
+      youtubeLinks: string[]
+    }
   > = {}
 
   const userAnswers = assessment.questions.map((q) => {
-    const selectedIdx = selectedIndices[q.id]
-    const isCorrect = selectedIdx === q.correctIndex
-    if (isCorrect) score += 1
+    const rawInput = userAnswersMap[q.id] ?? ''
+    const isCorrect = evaluateAnswer(rawInput, q.answer)
 
+    if (isCorrect) totalScore += 1
+
+    // Update TOS
+    const skill = q.cognitiveSkill || 'Applying'
+    tosStats[skill].total += 1
+    tosStats[skill].topics.add(q.topic)
+    if (isCorrect) {
+      tosStats[skill].correct += 1
+    }
+
+    // Update Topic
     if (!topicMap[q.topic]) {
       topicMap[q.topic] = {
-        incorrect: 0,
+        correct: 0,
         total: 0,
-        urls: q.youtubeLinks ?? [],
+        cognitiveSkills: new Set(),
+        youtubeLinks: q.youtubeLinks ?? [],
       }
     }
     topicMap[q.topic].total += 1
-    if (!isCorrect) {
-      topicMap[q.topic].incorrect += 1
+    topicMap[q.topic].cognitiveSkills.add(skill)
+    if (isCorrect) {
+      topicMap[q.topic].correct += 1
     }
 
     return {
       questionId: q.id,
-      selectedOption: selectedIdx !== undefined ? q.options[selectedIdx] : '',
-      selectedIndex: selectedIdx ?? -1,
-      correctOption: q.options[q.correctIndex],
-      correctIndex: q.correctIndex,
+      userAnswer: rawInput,
       isCorrect,
       topic: q.topic,
+      cognitiveSkill: skill,
     }
   })
 
   const total = assessment.questions.length
-  const percentage = Math.round((score / total) * 100 * 100) / 100
-  const passed = percentage >= 75 // 75% standard passing rate
+  const percentage = Math.round((totalScore / total) * 100 * 10) / 10
+  const passed = percentage >= 75 // 75% standard passing threshold
 
-  // Identify weak topics (any topic with mistakes, sorted by most mistakes)
-  const weakTopics: WeakTopic[] = Object.entries(topicMap)
-    .filter(([_, stats]) => stats.incorrect > 0)
-    .sort((a, b) => b[1].incorrect - a[1].incorrect)
-    .map(([topic, stats]) => ({
-      topic,
-      incorrectCount: stats.incorrect,
-      totalCount: stats.total,
-      youtubeLinks: stats.urls,
-    }))
+  // Format TOS Breakdown
+  const finalTOS: Record<CognitiveSkill, TOSSkillStats> = {
+    Remembering: {
+      skill: 'Remembering',
+      correct: tosStats.Remembering.correct,
+      total: tosStats.Remembering.total,
+      percentage:
+        tosStats.Remembering.total > 0
+          ? Math.round((tosStats.Remembering.correct / tosStats.Remembering.total) * 100)
+          : 0,
+      topics: Array.from(tosStats.Remembering.topics),
+    },
+    Understanding: {
+      skill: 'Understanding',
+      correct: tosStats.Understanding.correct,
+      total: tosStats.Understanding.total,
+      percentage:
+        tosStats.Understanding.total > 0
+          ? Math.round((tosStats.Understanding.correct / tosStats.Understanding.total) * 100)
+          : 0,
+      topics: Array.from(tosStats.Understanding.topics),
+    },
+    Applying: {
+      skill: 'Applying',
+      correct: tosStats.Applying.correct,
+      total: tosStats.Applying.total,
+      percentage:
+        tosStats.Applying.total > 0
+          ? Math.round((tosStats.Applying.correct / tosStats.Applying.total) * 100)
+          : 0,
+      topics: Array.from(tosStats.Applying.topics),
+    },
+  }
+
+  // Calculate Average Likert Rating
+  const likertVals = Object.values(likertResponses)
+  const averageLikertRating =
+    likertVals.length > 0
+      ? Math.round((likertVals.reduce((a, b) => a + b, 0) / likertVals.length) * 10) / 10
+      : 3.0
+
+  // Topic statement mapping (statement index to topic)
+  const statementTopicMap: Record<string, number> = {}
+  assessment.alignedLikertStatements.forEach((stmt) => {
+    statementTopicMap[stmt.topic] = likertResponses[stmt.id] ?? 3
+  })
+
+  // Format Topic Results with Severity Levels & Quadrant Comparison
+  const topicResults: TopicAssessmentResult[] = Object.entries(topicMap).map(
+    ([topic, stats]) => {
+      const topicPct = Math.round((stats.correct / stats.total) * 100)
+      const perceivedRating = statementTopicMap[topic] ?? 3
+      const perceivedInterpretation = getLikertInterpretation(perceivedRating)
+
+      // Severity Level:
+      // Critical (<50%), Moderate (50-74%), Mastered (>=75%)
+      let severity: SeverityLevel = 'Mastered'
+      let severityLabel = 'Low Severity (Mastered)'
+      if (topicPct < 50) {
+        severity = 'Critical'
+        severityLabel = 'High Severity (Critical Gap)'
+      } else if (topicPct < 75) {
+        severity = 'Moderate'
+        severityLabel = 'Moderate Severity (Needs Review)'
+      }
+
+      // Likert vs Actual Quadrant Analysis:
+      // High confidence = rating >= 3.5, Low confidence = rating < 3.5
+      // High performance = topicPct >= 75%, Low performance = topicPct < 75%
+      let quadrant: 'Blind Spot' | 'Underconfident' | 'Confirmed Learning Gap' | 'Mastered Competency'
+      let quadrantAnalysis = ''
+      let studyTip = ''
+
+      if (perceivedRating >= 3.5 && topicPct < 75) {
+        quadrant = 'Blind Spot'
+        quadrantAnalysis =
+          'You felt confident, but the diagnostic performance indicates gaps in execution or underlying misconceptions.'
+        studyTip =
+          'Review the provided YouTube lesson carefully, solve step-by-step example problems, and verify calculations before submitting.'
+      } else if (perceivedRating < 3.5 && topicPct >= 75) {
+        quadrant = 'Underconfident'
+        quadrantAnalysis =
+          'You reported hesitation or lack of confidence, yet your diagnostic performance was strong and met mastery.'
+        studyTip =
+          'Trust your mathematical abilities. Your foundation is solid; practice explaining your steps to reinforce self-confidence.'
+      } else if (perceivedRating < 3.5 && topicPct < 75) {
+        quadrant = 'Confirmed Learning Gap'
+        quadrantAnalysis =
+          'Your perceived difficulty aligns with your test score. This topic represents a high-priority area for remedial intervention.'
+        studyTip =
+          'Start with foundational concepts from the video tutorial. Break problems into smaller steps and practice daily drills.'
+      } else {
+        quadrant = 'Mastered Competency'
+        quadrantAnalysis =
+          'Your confidence and diagnostic accuracy are both high. You have achieved solid mastery of this learning competency.'
+        studyTip =
+          'Continue applying these skills to more complex word problems and advanced applications.'
+      }
+
+      return {
+        topic,
+        correct: stats.correct,
+        total: stats.total,
+        percentage: topicPct,
+        severity,
+        severityLabel,
+        cognitiveSkills: Array.from(stats.cognitiveSkills),
+        perceivedRating,
+        perceivedInterpretation,
+        quadrant,
+        quadrantAnalysis,
+        studyTip,
+        youtubeLinks: stats.youtubeLinks,
+      }
+    }
+  )
+
+  // Sort topic results: Critical first, then Moderate, then Mastered
+  topicResults.sort((a, b) => a.percentage - b.percentage)
 
   return {
-    score,
+    score: totalScore,
     total,
     percentage,
     passed,
-    weakTopics,
+    tosStats: finalTOS,
+    topicResults,
+    likertResponses,
+    averageLikertRating,
     userAnswers,
   }
 }
@@ -224,4 +480,3 @@ export function scoreLikert(responses: Record<number, number>): LikertResult {
     responses,
   }
 }
-

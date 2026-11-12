@@ -39,7 +39,7 @@ export default function DashboardNav({ user, profile }: DashboardNavProps) {
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="flex items-center gap-3 group">
             <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur-md flex items-center justify-center font-black text-emerald-200 border border-white/20 shadow-inner text-base group-hover:scale-105 transition">
-              ∑
+              <span className="font-serif">M</span>
             </div>
             <div className="flex flex-col">
               <span className="text-lg sm:text-xl font-extrabold tracking-tight text-white leading-tight">
@@ -63,7 +63,10 @@ export default function DashboardNav({ user, profile }: DashboardNavProps) {
                   : 'text-white/80 hover:text-white'
               }`}
             >
-              <span>🎓</span>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l9-5-9-5-9 5 9 5z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+              </svg>
               <span className="hidden sm:inline">Student View</span>
             </Link>
             <Link
@@ -74,7 +77,9 @@ export default function DashboardNav({ user, profile }: DashboardNavProps) {
                   : 'text-white/80 hover:text-white'
               }`}
             >
-              <span>👑</span>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
               <span>Admin Results</span>
             </Link>
           </div>
@@ -102,11 +107,13 @@ export default function DashboardNav({ user, profile }: DashboardNavProps) {
 
           <button
             onClick={handleLogout}
-            className="flex items-center gap-1 bg-white/15 hover:bg-white/25 active:bg-white/30 text-white font-semibold text-xs px-3 py-2 rounded-xl transition-all border border-white/20 shadow-sm"
+            className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 active:bg-white/30 text-white font-semibold text-xs px-3 py-2 rounded-xl transition-all border border-white/20 shadow-sm"
             title="Log out of your account"
           >
             <span>Log out</span>
-            <span className="text-xs">→</span>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
           </button>
         </div>
       </div>

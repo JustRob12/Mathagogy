@@ -242,7 +242,9 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
-              <span>👑</span>
+              <svg className="w-3.5 h-3.5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
               <span>ADMINISTRATOR CONSOLE (ROLE = 0)</span>
             </div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-white">
@@ -258,14 +260,18 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
               onClick={fetchData}
               className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white text-xs font-bold border border-white/20 transition flex items-center gap-2"
             >
-              <span>🔄</span>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
               <span>Refresh Data</span>
             </button>
             <Link
               href="/dashboard"
               className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold transition shadow-sm flex items-center gap-2"
             >
-              <span>🎓</span>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l9-5-9-5-9 5 9 5z" />
+              </svg>
               <span>Student View</span>
             </Link>
           </div>
@@ -327,7 +333,9 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <span>📊</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
           <span>Assessment Results ({attempts.length})</span>
         </button>
         <button
@@ -338,7 +346,9 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <span>👥</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
           <span>Students Roster ({profiles.length})</span>
         </button>
       </div>
@@ -352,7 +362,9 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
               {/* Search Bar */}
               <div className="relative flex-1 max-w-md">
                 <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  🔍
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
                 </span>
                 <input
                   type="text"
@@ -366,7 +378,7 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
                     onClick={() => setSearchTerm('')}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-slate-400 hover:text-slate-600"
                   >
-                    ✕
+                    Clear
                   </button>
                 )}
               </div>
@@ -376,7 +388,9 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
                 onClick={handleExportCSV}
                 className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs sm:text-sm transition shadow-sm flex items-center justify-center gap-2"
               >
-                <span>📥</span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
                 <span>Export CSV ({filteredAttempts.length})</span>
               </button>
             </div>
@@ -588,7 +602,7 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
                             {isLikert
                               ? 'Survey'
                               : attempt.passed
-                              ? 'Passed ✓'
+                              ? 'Passed'
                               : 'Needs Review'}
                           </span>
                         </td>

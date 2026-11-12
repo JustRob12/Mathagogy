@@ -9,6 +9,7 @@ import {
   type Assessment,
   type AssessmentAttempt,
   type DiagnosticResult,
+  gradeDiagnostic,
 } from '@/lib/assessments'
 import AssessmentCardQuiz from '@/components/assessment/AssessmentCardQuiz'
 import LikertCardQuiz from '@/components/assessment/LikertCardQuiz'
@@ -87,32 +88,23 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
 
   // View the result page of an already-completed assessment
   const handleViewResult = (assessment: Assessment, attempt: AssessmentAttempt) => {
-    const diagnosticResult: DiagnosticResult = {
-      score: attempt.score,
-      total: attempt.total_questions,
-      percentage: Number(attempt.percentage),
-      passed: attempt.passed,
-      weakTopics: attempt.weak_topics ?? [],
-      userAnswers:
-        Array.isArray(attempt.answers) && attempt.answers.length > 0
-          ? attempt.answers
-          : assessment.questions.map((q) => {
-              const selectedIdx = attempt.answers?.[q.id]
-              const isCorrect = selectedIdx === q.correctIndex
-              return {
-                questionId: q.id,
-                selectedOption:
-                  selectedIdx !== undefined && q.options[selectedIdx]
-                    ? q.options[selectedIdx]
-                    : '',
-                selectedIndex: selectedIdx ?? -1,
-                correctOption: q.options[q.correctIndex],
-                correctIndex: q.correctIndex,
-                isCorrect,
-                topic: q.topic,
-              }
-            }),
+    const userAnswersMap: Record<number, string> = {}
+    if (Array.isArray(attempt.answers)) {
+      attempt.answers.forEach((ua: any) => {
+        userAnswersMap[ua.questionId] = ua.userAnswer ?? ua.selectedOption ?? ''
+      })
+    } else if (typeof attempt.answers === 'object' && attempt.answers !== null) {
+      Object.entries(attempt.answers).forEach(([k, v]) => {
+        userAnswersMap[Number(k)] = String(v)
+      })
     }
+
+    const likertMap: Record<number, number> = {}
+
+    const diagnosticResult = gradeDiagnostic(assessment, userAnswersMap, likertMap)
+    diagnosticResult.score = attempt.score
+    diagnosticResult.percentage = Number(attempt.percentage)
+    diagnosticResult.passed = attempt.passed
 
     setActiveAssessment({
       assessment,
@@ -216,13 +208,13 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 backdrop-blur-md border border-white/20 text-emerald-100">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Interactive Diagnostic Questionnaires</span>
+              <span>Diagnostic Assessment Platform</span>
             </div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-white">
-              Welcome, {profile?.name ?? profile?.username ?? 'Student'} 👋
+              Welcome, {profile?.name ?? profile?.username ?? 'Student'}
             </h1>
             <p className="text-sm sm:text-base text-emerald-100/90 leading-relaxed">
-              Select your grade level to take diagnostic tests. Each test runs as interactive question cards, grades your answers, records your history, and provides targeted YouTube video lessons for topics that need review.
+              Select your grade level to access diagnostic assessments. Each test includes an aligned Likert perception questionnaire, Table of Specifications (TOS) cognitive analysis, open-ended problem solving, and targeted YouTube recommendations.
             </p>
           </div>
 
@@ -256,7 +248,7 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
         </div>
       </div>
 
-      {/* Modern Tabs: Questionnaires vs History */}
+      {/* Tabs: Questionnaires vs History */}
       <div className="flex bg-slate-200/70 p-1.5 rounded-2xl max-w-md w-full">
         <button
           onClick={() => setActiveTab('assessments')}
@@ -266,7 +258,9 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <span>📝</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
           <span>Assessments</span>
         </button>
         <button
@@ -277,7 +271,9 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <span>📈</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
           <span>History ({attempts.length})</span>
         </button>
       </div>
@@ -311,10 +307,16 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                     }`}
                   >
                     <div className="flex items-center justify-between w-full mb-2">
-                      <span className="text-2xl">🎓</span>
+                      <div className="w-7 h-7 rounded-lg bg-emerald-100/30 text-emerald-800 flex items-center justify-center font-bold text-xs">
+                        <svg className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-slate-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l9-5-9-5-9 5 9 5z" />
+                        </svg>
+                      </div>
                       {isSelected ? (
                         <span className="w-5 h-5 rounded-full bg-white text-emerald-800 flex items-center justify-center text-xs font-black shadow-sm">
-                          ✓
+                          <svg className="w-3 h-3 text-emerald-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                          </svg>
                         </span>
                       ) : (
                         <span className="w-2 h-2 rounded-full bg-slate-200" />
@@ -352,7 +354,6 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
               {/* Term Diagnostic Tests */}
               {gradeAssessments.map((assessment) => {
-                // Get all attempts for this specific term
                 const termAttempts = attempts.filter(
                   (a) => a.grade === assessment.grade && a.term === assessment.term
                 )
@@ -388,7 +389,7 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                                 latest.passed ? 'bg-emerald-600' : 'bg-amber-600'
                               }`}
                             />
-                            Latest: {latest.percentage}% • {latest.passed ? 'Passed ✓' : 'Needs Review'}
+                            Latest: {latest.percentage}% • {latest.passed ? 'Passed' : 'Needs Review'}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-500">
@@ -402,7 +403,7 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                         {assessment.title}
                       </h3>
                       <p className="text-xs text-slate-500 mb-3 line-clamp-2">
-                        50 sequential question cards with answer validation and targeted YouTube lesson links for weak topics.
+                        Includes aligned Likert self-perception scale, Table of Specifications (TOS) analysis, direct problem solving, and targeted YouTube lessons.
                       </p>
 
                       {/* Topic chips preview */}
@@ -427,7 +428,9 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                     <div className="mt-2 pt-3 border-t border-slate-100 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                          <span>📋</span>
+                          <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
                           <span>Take History ({termAttempts.length})</span>
                         </span>
                         {termAttempts.length > 0 && (
@@ -460,7 +463,7 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-extrabold text-slate-900 text-xs">
-                                        {attempt.score}/{attempt.total_questions} ({attempt.percentage}%)
+                                        {attempt.percentage}%
                                       </span>
                                       <span
                                         className={`text-[10px] px-1.5 py-0.2 rounded font-black ${
@@ -469,7 +472,7 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                                             : 'bg-amber-100 text-amber-800'
                                         }`}
                                       >
-                                        {attempt.passed ? 'Passed ✓' : 'Needs Review'}
+                                        {attempt.passed ? 'Passed' : 'Needs Review'}
                                       </span>
                                     </div>
                                     <p className="text-[10px] text-slate-400 mt-0.5 truncate">
@@ -499,7 +502,7 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                         onClick={() => handleStartOrRetake(assessment)}
                         className={`w-full py-3 px-4 rounded-2xl text-white font-bold text-sm transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] mt-2 ${theme.btn}`}
                       >
-                        <span>{termAttempts.length > 0 ? '🔄 Retake Assessment' : '🚀 Start Assessment'}</span>
+                        <span>{termAttempts.length > 0 ? 'Retake Assessment' : 'Start Assessment'}</span>
                       </button>
                     </div>
                   </div>
@@ -551,7 +554,9 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                 <div className="mt-2 pt-3 border-t border-slate-100 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                      <span>📋</span>
+                      <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
                       <span>Survey Takes ({likertAttempts.length})</span>
                     </span>
                   </div>
@@ -602,11 +607,10 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                     onClick={() => setIsLikertActive(true)}
                     className="w-full py-3 px-4 rounded-2xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm transition shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] mt-2"
                   >
-                    <span>📊</span>
                     <span>
                       {likertAttempts.length > 0
-                        ? '🔄 Retake Questionnaire'
-                        : '🚀 Start Questionnaire'}
+                        ? 'Retake Questionnaire'
+                        : 'Start Questionnaire'}
                     </span>
                   </button>
                 </div>
@@ -627,7 +631,10 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
               onClick={fetchHistory}
               className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1"
             >
-              <span>🔄</span> Refresh
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Refresh</span>
             </button>
           </div>
 

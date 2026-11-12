@@ -1,7 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { LIKERT_SCALE, scoreLikert, type LikertResult } from '@/lib/assessments'
+import {
+  LIKERT_SCALE,
+  scoreLikert,
+  type LikertResult,
+  LIKERT_RESPONSE_SCALE,
+} from '@/lib/assessments'
 import { createClient } from '@/lib/supabase/client'
 
 interface LikertCardQuizProps {
@@ -25,11 +30,12 @@ export default function LikertCardQuiz({
 
   const questions = LIKERT_SCALE.questions
   const currentQuestion = questions[currentIndex]
-  const isAnswered = responses[currentQuestion.id] !== undefined
+  const isAnswered = currentQuestion && responses[currentQuestion.id] !== undefined
   const isLastQuestion = currentIndex === questions.length - 1
   const progressPercent = Math.round(((currentIndex + 1) / questions.length) * 100)
 
   const handleSelectValue = (val: number) => {
+    if (!currentQuestion) return
     setResponses((prev) => ({
       ...prev,
       [currentQuestion.id]: val,
@@ -93,10 +99,12 @@ export default function LikertCardQuiz({
   // --- RESULT VIEW ---
   if (result) {
     return (
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden max-w-3xl mx-auto my-3 sm:my-6 animate-fadeIn">
-        <div className="p-6 sm:p-8 md:p-10 text-center text-white bg-gradient-to-br from-teal-700 via-emerald-700 to-green-800">
-          <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/20 backdrop-blur-md mb-4 text-3xl sm:text-4xl shadow-inner">
-            📊
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden max-w-3xl mx-auto my-3 sm:my-6">
+        <div className="p-6 sm:p-8 md:p-10 text-center text-white bg-gradient-to-br from-teal-800 via-emerald-800 to-slate-900">
+          <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/15 backdrop-blur-md mb-3 border border-white/20 shadow-inner">
+            <svg className="w-8 h-8 text-teal-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
           </div>
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight">
             Mathematics Learning Profile
@@ -109,15 +117,15 @@ export default function LikertCardQuiz({
             <p className="text-[11px] uppercase font-bold tracking-wider text-white/80">
               Overall Readiness Index
             </p>
-            <p className="text-2xl sm:text-3xl font-black mt-0.5">
+            <p className="text-3xl sm:text-4xl font-black mt-0.5">
               {result.totalAverage} <span className="text-sm font-normal text-white/70">/ 5.0</span>
             </p>
           </div>
 
-          <div className="mt-3 text-xs">
-            {saveStatus === 'saving' && <span className="text-white/80">💾 Recording to history...</span>}
-            {saveStatus === 'saved' && <span className="text-teal-200">✓ Recorded to your assessment history</span>}
-            {saveStatus === 'error' && <span className="text-red-200">⚠ Could not connect to history table</span>}
+          <div className="mt-3 text-xs font-medium">
+            {saveStatus === 'saving' && <span className="text-white/80">Recording to history...</span>}
+            {saveStatus === 'saved' && <span className="text-teal-200">Recorded to your assessment history</span>}
+            {saveStatus === 'error' && <span className="text-red-200">Could not connect to history table</span>}
           </div>
         </div>
 
@@ -141,7 +149,7 @@ export default function LikertCardQuiz({
                   </span>
                 </div>
                 <div className="flex items-baseline gap-1.5 mt-2">
-                  <span className="text-xl sm:text-2xl font-black text-teal-900">
+                  <span className="text-2xl font-black text-teal-900">
                     {cat.score}
                   </span>
                   <span className="text-xs text-slate-400">/ 5.0</span>
@@ -182,15 +190,6 @@ export default function LikertCardQuiz({
     )
   }
 
-  // Option colors
-  const optionColors: Record<number, { bg: string; text: string; activeRing: string }> = {
-    1: { bg: 'border-rose-200 bg-rose-50/40 hover:bg-rose-50', text: 'text-rose-900', activeRing: 'border-rose-600 bg-rose-100 ring-rose-500/20' },
-    2: { bg: 'border-amber-200 bg-amber-50/40 hover:bg-amber-50', text: 'text-amber-900', activeRing: 'border-amber-600 bg-amber-100 ring-amber-500/20' },
-    3: { bg: 'border-slate-200 bg-slate-50/40 hover:bg-slate-50', text: 'text-slate-800', activeRing: 'border-slate-600 bg-slate-100 ring-slate-500/20' },
-    4: { bg: 'border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50', text: 'text-emerald-900', activeRing: 'border-emerald-600 bg-emerald-100 ring-emerald-500/20' },
-    5: { bg: 'border-teal-200 bg-teal-50/40 hover:bg-teal-50', text: 'text-teal-900', activeRing: 'border-teal-600 bg-teal-100 ring-teal-500/20' },
-  }
-
   // --- CARD VIEW ---
   return (
     <div className="max-w-2xl mx-auto my-2 sm:my-6 px-1">
@@ -205,10 +204,45 @@ export default function LikertCardQuiz({
         </div>
         <button
           onClick={onClose}
-          className="text-slate-400 hover:text-slate-700 transition p-1.5 rounded-xl hover:bg-slate-100"
+          className="text-slate-400 hover:text-slate-700 transition p-1.5 rounded-xl hover:bg-slate-100 text-xs font-bold"
         >
-          <span className="text-sm font-bold">✕ Exit</span>
+          Exit
         </button>
+      </div>
+
+      {/* Instructions Box & Response Scale Reference */}
+      <div className="mb-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+        <div>
+          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+            Instructions
+          </h4>
+          <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+            Instructions: Read each statement carefully and select the button that best represents your level of agreement. Choose only one response for each statement. There are no right or wrong answers. Please answer honestly based on your own knowledge and experience.
+          </p>
+        </div>
+
+        {/* Response Scale Table */}
+        <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+          <div className="bg-slate-100 px-3 py-1.5 font-bold text-slate-700 border-b border-slate-200 flex justify-between">
+            <span>Response Scale Reference</span>
+            <span>5-Point Scale</span>
+          </div>
+          <div className="grid grid-cols-5 divide-x divide-slate-200 text-center py-2 bg-slate-50/60">
+            {LIKERT_RESPONSE_SCALE.slice().reverse().map((opt) => (
+              <div key={opt.value} className="px-1">
+                <div
+                  className="w-5 h-5 rounded-full text-white font-black text-[10px] mx-auto flex items-center justify-center mb-0.5"
+                  style={{ backgroundColor: opt.color }}
+                >
+                  {opt.value}
+                </div>
+                <span className="text-[10px] font-semibold text-slate-700 leading-tight block">
+                  {opt.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Progress */}
@@ -228,61 +262,58 @@ export default function LikertCardQuiz({
       </div>
 
       {/* Card Body */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden p-5 sm:p-7 md:p-8 transition-all">
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden p-5 sm:p-7 md:p-8">
         <div className="mb-3">
           <span className="text-[11px] uppercase tracking-wider font-bold text-teal-800 bg-teal-50 px-3 py-1 rounded-lg border border-teal-200 inline-block">
             Category: {currentQuestion.categoryLabel}
           </span>
         </div>
 
-        <div className="mb-6">
+        <div className="mb-8">
           <h3 className="text-base sm:text-lg md:text-xl font-bold text-slate-900 leading-relaxed">
             <span className="text-teal-700 mr-1.5">{currentQuestion.id}.</span>
             &ldquo;{currentQuestion.statement}&rdquo;
           </h3>
         </div>
 
-        {/* 5-point Likert Options */}
-        <div className="space-y-2.5 sm:space-y-3 mb-6">
-          {LIKERT_SCALE.options.map((opt) => {
-            const isSelected = responses[currentQuestion.id] === opt.value
-            const style = optionColors[opt.value] || optionColors[3]
+        {/* Horizontally Aligned Response Circles */}
+        <div className="mb-8">
+          <p className="text-center text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">
+            Select Your Rating:
+          </p>
 
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => handleSelectValue(opt.value)}
-                className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border-2 transition-all flex items-center gap-3 sm:gap-4 active:scale-[0.99] ${
-                  isSelected
-                    ? `${style.activeRing} shadow-md ring-2`
-                    : `${style.bg} shadow-sm`
-                }`}
-              >
-                <div
-                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm shrink-0 transition ${
-                    isSelected
-                      ? 'bg-teal-700 text-white shadow'
-                      : 'bg-white border border-slate-200 text-slate-700'
-                  }`}
+          <div className="flex flex-row justify-center items-center gap-2 sm:gap-5">
+            {LIKERT_RESPONSE_SCALE.map((opt) => {
+              const isSelected = responses[currentQuestion.id] === opt.value
+
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => handleSelectValue(opt.value)}
+                  className="flex flex-col items-center group focus:outline-none transition-transform active:scale-95"
                 >
-                  {opt.value}
-                </div>
-                <span
-                  className={`flex-1 text-xs sm:text-sm md:text-base ${
-                    isSelected ? 'font-bold text-slate-950' : 'font-medium text-slate-800'
-                  }`}
-                >
-                  {opt.label}
-                </span>
-                {isSelected && (
-                  <span className="text-teal-700 font-bold text-base sm:text-lg shrink-0">
-                    ✓
+                  <div
+                    className={`w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center font-black text-sm sm:text-base text-white transition-all shadow-sm ${
+                      isSelected
+                        ? 'ring-4 ring-offset-2 ring-slate-800 scale-110 shadow-lg'
+                        : 'opacity-85 hover:opacity-100 hover:scale-105'
+                    }`}
+                    style={{ backgroundColor: opt.color }}
+                  >
+                    {opt.value}
+                  </div>
+                  <span
+                    className={`mt-2 text-[10px] sm:text-xs font-bold text-center max-w-[65px] sm:max-w-[80px] leading-tight transition ${
+                      isSelected ? 'text-slate-900 font-extrabold' : 'text-slate-500'
+                    }`}
+                  >
+                    {opt.label}
                   </span>
-                )}
-              </button>
-            )
-          })}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {/* Navigation Controls */}
@@ -297,7 +328,7 @@ export default function LikertCardQuiz({
                 : 'text-slate-600 hover:bg-slate-100 active:bg-slate-200'
             }`}
           >
-            ← Prev
+            Previous
           </button>
 
           <div className="flex items-center gap-2">
@@ -318,7 +349,7 @@ export default function LikertCardQuiz({
                     : 'bg-teal-700 text-white hover:bg-teal-800 active:scale-[0.98]'
                 }`}
               >
-                {isSubmitting ? 'Submitting...' : 'Submit Questionnaire ✓'}
+                {isSubmitting ? 'Submitting...' : 'Submit Questionnaire'}
               </button>
             ) : (
               <button
@@ -331,8 +362,7 @@ export default function LikertCardQuiz({
                     : 'bg-teal-700 text-white hover:bg-teal-800 active:scale-[0.98]'
                 }`}
               >
-                <span>Next</span>
-                <span>→</span>
+                Next Statement
               </button>
             )}
           </div>
