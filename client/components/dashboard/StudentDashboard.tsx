@@ -581,10 +581,10 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="font-extrabold text-slate-900">
-                                        Retake: {rt.percentage}%
+                                        Take {rt.take_number ?? 2} Retake: {rt.percentage}%
                                       </span>
                                       <span className="text-[10px] text-slate-500">
-                                        (First: {rt.initial_percentage ?? 0}%)
+                                        (1st Take: {rt.initial_percentage ?? 0}%)
                                       </span>
                                     </div>
                                     <p className="text-[10px] text-slate-500 mt-0.5">

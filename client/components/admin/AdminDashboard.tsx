@@ -41,9 +41,12 @@ interface RetakeAttemptWithProfile {
   user_id: string
   grade: string
   term: string
+  take_number: number // 2, 3, 4, etc.
   initial_score: number
   initial_total: number
   initial_percentage: number
+  previous_score?: number
+  previous_percentage?: number
   score: number
   total_questions: number
   percentage: number
@@ -65,6 +68,7 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'results' | 'retakes' | 'students'>('results')
+  const [retakeTakeView, setRetakeTakeView] = useState<'all' | 'take2' | 'take3' | 'take4plus' | 'stacked'>('all')
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('')
@@ -154,6 +158,28 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
         }
       })
 
+      // Group retakes by (user_id + grade + term) to assign sequential take_number (2, 3, 4...) and previous scores
+      const retakeGroups = new Map<string, any[]>()
+      combinedRetakes.forEach((rt) => {
+        const key = `${rt.user_id}_${rt.grade}_${rt.term}`
+        if (!retakeGroups.has(key)) retakeGroups.set(key, [])
+        retakeGroups.get(key)!.push(rt)
+      })
+
+      retakeGroups.forEach((group) => {
+        group.sort((a, b) => new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime())
+        group.forEach((rt, idx) => {
+          rt.take_number = rt.take_number ? Number(rt.take_number) : idx + 2
+          if (idx > 0) {
+            rt.previous_percentage = Number(group[idx - 1].percentage ?? 0)
+            rt.previous_score = Number(group[idx - 1].score ?? 0)
+          } else {
+            rt.previous_percentage = Number(rt.initial_percentage ?? 0)
+            rt.previous_score = Number(rt.initial_score ?? 0)
+          }
+        })
+      })
+
       const profileList: Profile[] = (profilesData as Profile[]) ?? []
       setProfiles(profileList)
 
@@ -165,9 +191,12 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
         .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
         .map((rt) => ({
           ...rt,
+          take_number: Number(rt.take_number ?? 2),
           initial_score: Number(rt.initial_score ?? 0),
           initial_total: Number(rt.initial_total ?? 0),
           initial_percentage: Number(rt.initial_percentage ?? 0),
+          previous_score: Number(rt.previous_score ?? rt.initial_score ?? 0),
+          previous_percentage: Number(rt.previous_percentage ?? rt.initial_percentage ?? 0),
           improvement_percentage: Number(rt.improvement_percentage ?? 0),
           profile: profileMap.get(rt.user_id),
         }))
@@ -282,6 +311,20 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
       })
   }, [retakes, searchTerm, gradeFilter, termFilter, statusFilter, sortBy])
 
+  // Retake Cohort Slices (Separate Tables)
+  const retakesTake2 = useMemo(
+    () => filteredRetakes.filter((r) => r.take_number === 2),
+    [filteredRetakes]
+  )
+  const retakesTake3 = useMemo(
+    () => filteredRetakes.filter((r) => r.take_number === 3),
+    [filteredRetakes]
+  )
+  const retakesTake4Plus = useMemo(
+    () => filteredRetakes.filter((r) => r.take_number >= 4),
+    [filteredRetakes]
+  )
+
   // Filtered Students Roster
   const filteredStudents = useMemo(() => {
     return profiles.map((p) => {
@@ -311,33 +354,46 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
   // Export Table Data to CSV
   const handleExportCSV = () => {
     if (activeTab === 'retakes') {
+      const exportList =
+        retakeTakeView === 'take2'
+          ? retakesTake2
+          : retakeTakeView === 'take3'
+          ? retakesTake3
+          : retakeTakeView === 'take4plus'
+          ? retakesTake4Plus
+          : filteredRetakes
+
       const headers = [
         'Retake ID',
+        'Take Cohort',
         'Student Name',
         'Username',
         'Grade Level',
         'Assessment Term',
-        'First Result (%)',
-        'First Score',
-        'Retake Result (%)',
-        'Retake Score',
+        '1st Take Initial (%)',
+        '1st Take Score',
+        'Previous Take (%)',
+        'This Take Result (%)',
+        'This Take Score',
         'Improvement Gain (%)',
-        'Study Verified',
+        'Passed Benchmark (>=75%)',
         'Completed Date',
       ]
 
-      const rows = filteredRetakes.map((rt) => [
+      const rows = exportList.map((rt) => [
         rt.id,
+        `"Take ${rt.take_number}"`,
         `"${rt.profile?.name ?? 'Unknown'}"`,
         `"${rt.profile?.username ?? 'Unknown'}"`,
         `"${rt.grade}"`,
         `"${rt.term}"`,
         `${rt.initial_percentage}%`,
         `${rt.initial_score}/${rt.initial_total}`,
+        `${rt.previous_percentage ?? rt.initial_percentage}%`,
         `${rt.percentage}%`,
         `${rt.score}/${rt.total_questions}`,
         `${rt.improvement_percentage > 0 ? `+${rt.improvement_percentage}%` : `${rt.improvement_percentage}%`}`,
-        rt.improvement_percentage > 0 ? 'YES' : 'NO',
+        rt.passed ? 'YES' : 'NO',
         `"${new Date(rt.completed_at).toLocaleString()}"`,
       ])
 
@@ -350,7 +406,7 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
       link.setAttribute('href', encodedUri)
       link.setAttribute(
         'download',
-        `mathagogy_retake_study_verification_${new Date().toISOString().split('T')[0]}.csv`
+        `mathagogy_retakes_${retakeTakeView}_${new Date().toISOString().split('T')[0]}.csv`
       )
       document.body.appendChild(link)
       link.click()
@@ -981,169 +1037,531 @@ export default function AdminDashboard({ user, profile }: AdminDashboardProps) {
                 </select>
               </div>
             </div>
+            {/* Take Cohorts Selector Tabs */}
+            <div className="mt-5 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mr-1">
+                  Take Cohorts:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRetakeTakeView('all')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition ${
+                    retakeTakeView === 'all'
+                      ? 'bg-indigo-700 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  All Retakes ({filteredRetakes.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRetakeTakeView('take2')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition ${
+                    retakeTakeView === 'take2'
+                      ? 'bg-blue-700 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  2nd Take Table ({retakesTake2.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRetakeTakeView('take3')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition ${
+                    retakeTakeView === 'take3'
+                      ? 'bg-purple-700 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  3rd Take Table ({retakesTake3.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRetakeTakeView('take4plus')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition ${
+                    retakeTakeView === 'take4plus'
+                      ? 'bg-amber-700 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  4th+ Takes Table ({retakesTake4Plus.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRetakeTakeView('stacked')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs transition ${
+                    retakeTakeView === 'stacked'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  View Separate Tables Stacked
+                </button>
+              </div>
+
+              <span className="text-xs text-slate-500 font-medium">
+                Showing {retakeTakeView === 'take2' ? retakesTake2.length : retakeTakeView === 'take3' ? retakesTake3.length : retakeTakeView === 'take4plus' ? retakesTake4Plus.length : filteredRetakes.length} retake records
+              </span>
+            </div>
           </div>
 
-          {/* TABLE FORM DATA FOR RETAKES */}
+          {/* TABLE FORM DATA FOR RETAKES (SEPARATE TABLES FOR 2nd, 3rd, 4th+ TAKES) */}
           {loading ? (
             <div className="p-12 text-center text-slate-400">Loading retake records...</div>
-          ) : filteredRetakes.length === 0 ? (
-            <div className="p-12 text-center space-y-2">
-              <p className="font-bold text-slate-700">No retake records match your selected filters.</p>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                When students complete a diagnostic test with learning gaps and then retake their missed questions after studying the YouTube video recommendations, their first vs latest results will appear in this ledger.
-              </p>
-            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/75 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-3.5 px-4">#</th>
-                    <th className="py-3.5 px-4">Student</th>
-                    <th className="py-3.5 px-4">Grade & Term</th>
-                    <th className="py-3.5 px-4">First Result (Initial)</th>
-                    <th className="py-3.5 px-4">Latest Result (Retake)</th>
-                    <th className="py-3.5 px-4">Improvement Gain</th>
-                    <th className="py-3.5 px-4">Study Verification</th>
-                    <th className="py-3.5 px-4">Retake Date</th>
-                    <th className="py-3.5 px-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
-                  {filteredRetakes.map((rt, idx) => {
-                    const studentName = rt.profile?.name ?? 'Anonymous Student'
-                    const studentUsername = rt.profile?.username ?? 'user'
-                    const initial = studentName.charAt(0).toUpperCase()
-                    const dateFormatted = new Date(rt.completed_at).toLocaleDateString(
-                      'en-US',
-                      {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }
-                    )
-                    const improved = rt.improvement_percentage > 0
+            <div className="p-4 sm:p-6 space-y-6">
+              {/* If "take2" or "stacked", render 2nd Take Table */}
+              {(retakeTakeView === 'take2' || retakeTakeView === 'stacked') && (
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                  <div className="p-4 sm:p-5 bg-blue-50/70 border-b border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-700 text-white">
+                          2nd Take Cohort
+                        </span>
+                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
+                          2nd Take Table (1st Remedial Retake) — {retakesTake2.length} Takers
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Students taking their 1st remedial retake after studying recommended YouTube video lessons.
+                      </p>
+                    </div>
+                    <div className="text-xs font-bold text-blue-900 bg-white/80 px-3 py-1 rounded-xl border border-blue-200/60 self-start sm:self-auto">
+                      {retakesTake2.filter((r) => r.passed).length} of {retakesTake2.length} Passed (≥75%)
+                    </div>
+                  </div>
 
-                    return (
-                      <tr
-                        key={rt.id}
-                        className="hover:bg-slate-50/80 transition-colors"
-                      >
-                        {/* Index */}
-                        <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">
-                          {idx + 1}
-                        </td>
+                  {retakesTake2.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 font-medium">
+                      No students currently have 2nd take records matching filters.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100/75 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <th className="py-3 px-4">#</th>
+                            <th className="py-3 px-4">Student</th>
+                            <th className="py-3 px-4">Grade & Term</th>
+                            <th className="py-3 px-4">1st Take (Initial)</th>
+                            <th className="py-3 px-4">2nd Take Result</th>
+                            <th className="py-3 px-4">Score Gain</th>
+                            <th className="py-3 px-4">Term Status</th>
+                            <th className="py-3 px-4">Completed Date</th>
+                            <th className="py-3 px-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                          {retakesTake2.map((rt, idx) => (
+                            <tr key={rt.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">{idx + 1}</td>
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                    {(rt.profile?.name ?? 'S').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-slate-900 leading-snug">{rt.profile?.name ?? 'Anonymous'}</p>
+                                    <p className="text-[11px] text-slate-400">@{rt.profile?.username ?? 'user'}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                  {rt.grade} • {rt.term}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-extrabold text-slate-700">{rt.initial_percentage}%</span>
+                                <span className="text-[11px] text-slate-400 block">{rt.initial_score}/{rt.initial_total} full test</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-black text-slate-900">{rt.percentage}%</span>
+                                <span className="text-[11px] text-slate-500 block">{rt.score}/{rt.total_questions} missed solved</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                {rt.improvement_percentage > 0 ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+                                    +{rt.improvement_percentage}%
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-bold text-slate-500">{rt.improvement_percentage}%</span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                {rt.passed ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                                    <span>Passed (≥75%)</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    <span>Eligible for 3rd Take</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
+                                {new Date(rt.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={() => setSelectedAttempt({ ...rt, isRetake: true })}
+                                  className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs transition shadow-xs"
+                                >
+                                  View Details
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                        {/* Student */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                              {initial}
-                            </div>
-                            <div>
-                              <p className="font-bold text-slate-900 leading-snug">
-                                {studentName}
-                              </p>
-                              <p className="text-[11px] text-slate-400">
-                                @{studentUsername}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
+              {/* If "take3" or "stacked", render 3rd Take Table */}
+              {(retakeTakeView === 'take3' || retakeTakeView === 'stacked') && (
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                  <div className="p-4 sm:p-5 bg-purple-50/70 border-b border-purple-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-700 text-white">
+                          3rd Take Cohort
+                        </span>
+                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
+                          3rd Take Table (2nd Remedial Retake) — {retakesTake3.length} Takers
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Students who required a second remedial round to address remaining missed questions.
+                      </p>
+                    </div>
+                    <div className="text-xs font-bold text-purple-900 bg-white/80 px-3 py-1 rounded-xl border border-purple-200/60 self-start sm:self-auto">
+                      {retakesTake3.filter((r) => r.passed).length} of {retakesTake3.length} Passed Benchmark
+                    </div>
+                  </div>
 
-                        {/* Grade & Term */}
-                        <td className="py-3.5 px-4">
-                          <div className="space-y-0.5">
-                            <span className="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
-                              {rt.grade}
-                            </span>
-                            <p className="text-[11px] font-semibold text-slate-600">
-                              {rt.term}
-                            </p>
-                          </div>
-                        </td>
+                  {retakesTake3.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 font-medium">
+                      No students currently have 3rd take records matching filters.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100/75 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <th className="py-3 px-4">#</th>
+                            <th className="py-3 px-4">Student</th>
+                            <th className="py-3 px-4">Grade & Term</th>
+                            <th className="py-3 px-4">1st Take</th>
+                            <th className="py-3 px-4">2nd Take</th>
+                            <th className="py-3 px-4">3rd Take Result</th>
+                            <th className="py-3 px-4">Overall Gain</th>
+                            <th className="py-3 px-4">Term Status</th>
+                            <th className="py-3 px-4">Completed Date</th>
+                            <th className="py-3 px-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                          {retakesTake3.map((rt, idx) => (
+                            <tr key={rt.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">{idx + 1}</td>
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                    {(rt.profile?.name ?? 'S').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-slate-900 leading-snug">{rt.profile?.name ?? 'Anonymous'}</p>
+                                    <p className="text-[11px] text-slate-400">@{rt.profile?.username ?? 'user'}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                  {rt.grade} • {rt.term}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-extrabold text-slate-600">{rt.initial_percentage}%</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-extrabold text-blue-700">{rt.previous_percentage ?? rt.initial_percentage}%</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-black text-slate-900">{rt.percentage}%</span>
+                                <span className="text-[11px] text-slate-500 block">{rt.score}/{rt.total_questions} solved</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  +{rt.improvement_percentage}%
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                {rt.passed ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                                    <span>Term Mastered</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    <span>Eligible for 4th Take</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
+                                {new Date(rt.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={() => setSelectedAttempt({ ...rt, isRetake: true })}
+                                  className="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs transition shadow-xs"
+                                >
+                                  View Details
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                        {/* First Result (Initial Diagnostic) */}
-                        <td className="py-3.5 px-4">
-                          <div className="space-y-0.5">
-                            <span className="font-extrabold text-slate-700 text-sm">
-                              {rt.initial_percentage}%
-                            </span>
-                            <span className="text-[11px] text-slate-400 block font-medium">
-                              {rt.initial_score} / {rt.initial_total} correct
-                            </span>
-                          </div>
-                        </td>
+              {/* If "take4plus" or "stacked", render 4th+ Take Table */}
+              {(retakeTakeView === 'take4plus' || retakeTakeView === 'stacked') && (
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                  <div className="p-4 sm:p-5 bg-amber-50/70 border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-700 text-white">
+                          4th+ Takes Cohort
+                        </span>
+                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
+                          4th+ Takes Table (Multi-Retakers) — {retakesTake4Plus.length} Takers
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Persistent students completing 4 or more takes until achieving benchmark mastery.
+                      </p>
+                    </div>
+                    <div className="text-xs font-bold text-amber-900 bg-white/80 px-3 py-1 rounded-xl border border-amber-200/60 self-start sm:self-auto">
+                      {retakesTake4Plus.filter((r) => r.passed).length} of {retakesTake4Plus.length} Passed Benchmark
+                    </div>
+                  </div>
 
-                        {/* Latest Result (Retake) */}
-                        <td className="py-3.5 px-4">
-                          <div className="space-y-0.5">
-                            <span className="font-black text-slate-900 text-sm">
-                              {rt.percentage}%
-                            </span>
-                            <span className="text-[11px] text-slate-500 block font-medium">
-                              {rt.score} / {rt.total_questions} missed solved
-                            </span>
-                          </div>
-                        </td>
+                  {retakesTake4Plus.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 font-medium">
+                      No students currently have 4th+ take records matching filters.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100/75 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <th className="py-3 px-4">#</th>
+                            <th className="py-3 px-4">Student</th>
+                            <th className="py-3 px-4">Grade & Term</th>
+                            <th className="py-3 px-4">Take #</th>
+                            <th className="py-3 px-4">1st Take</th>
+                            <th className="py-3 px-4">Latest Retake Result</th>
+                            <th className="py-3 px-4">Total Gain</th>
+                            <th className="py-3 px-4">Term Status</th>
+                            <th className="py-3 px-4">Completed Date</th>
+                            <th className="py-3 px-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                          {retakesTake4Plus.map((rt, idx) => (
+                            <tr key={rt.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">{idx + 1}</td>
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                    {(rt.profile?.name ?? 'S').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-slate-900 leading-snug">{rt.profile?.name ?? 'Anonymous'}</p>
+                                    <p className="text-[11px] text-slate-400">@{rt.profile?.username ?? 'user'}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                  {rt.grade} • {rt.term}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-200">
+                                  Take {rt.take_number}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-extrabold text-slate-600">{rt.initial_percentage}%</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-black text-slate-900">{rt.percentage}%</span>
+                                <span className="text-[11px] text-slate-500 block">{rt.score}/{rt.total_questions} solved</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  +{rt.improvement_percentage}%
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                {rt.passed ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                                    <span>Passed (≥75%)</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    <span>Still Retaking</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
+                                {new Date(rt.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={() => setSelectedAttempt({ ...rt, isRetake: true })}
+                                  className="px-3 py-1.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs transition shadow-xs"
+                                >
+                                  View Details
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                        {/* Improvement Gain */}
-                        <td className="py-3.5 px-4">
-                          {improved ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                              </svg>
-                              +{rt.improvement_percentage}%
-                            </span>
-                          ) : rt.improvement_percentage === 0 ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                              0.0%
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                              {rt.improvement_percentage}%
-                            </span>
-                          )}
-                        </td>
+              {/* If "all", render Combined Table */}
+              {retakeTakeView === 'all' && (
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                  <div className="p-4 sm:p-5 bg-indigo-50/70 border-b border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
+                        All Retake Attempts Ledger ({filteredRetakes.length})
+                      </h4>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Complete chronological ledger of all remedial retake takes across 2nd, 3rd, and 4th+ takes.
+                      </p>
+                    </div>
+                    <div className="text-xs font-bold text-indigo-900 bg-white/80 px-3 py-1 rounded-xl border border-indigo-200/60 self-start sm:self-auto">
+                      {filteredRetakes.filter((r) => r.passed).length} of {filteredRetakes.length} Passed Benchmark
+                    </div>
+                  </div>
 
-                        {/* Study Verification */}
-                        <td className="py-3.5 px-4">
-                          {improved ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
-                              </svg>
-                              <span>Studied & Improved</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                              <span>Needs Further Study</span>
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Retake Date */}
-                        <td className="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
-                          {dateFormatted}
-                        </td>
-
-                        {/* Action */}
-                        <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => setSelectedAttempt({ ...rt, isRetake: true })}
-                            className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs transition shadow-xs"
-                          >
-                            View Retake Details
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                  {filteredRetakes.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 font-medium">
+                      No retake records match your selected filters.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100/75 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <th className="py-3 px-4">#</th>
+                            <th className="py-3 px-4">Student</th>
+                            <th className="py-3 px-4">Grade & Term</th>
+                            <th className="py-3 px-4">Take Cohort</th>
+                            <th className="py-3 px-4">1st Take</th>
+                            <th className="py-3 px-4">Retake Result</th>
+                            <th className="py-3 px-4">Score Gain</th>
+                            <th className="py-3 px-4">Term Status</th>
+                            <th className="py-3 px-4">Completed Date</th>
+                            <th className="py-3 px-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                          {filteredRetakes.map((rt, idx) => (
+                            <tr key={rt.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">{idx + 1}</td>
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                    {(rt.profile?.name ?? 'S').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="font-bold text-slate-900 leading-snug">{rt.profile?.name ?? 'Anonymous'}</p>
+                                    <p className="text-[11px] text-slate-400">@{rt.profile?.username ?? 'user'}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                  {rt.grade} • {rt.term}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-black ${
+                                  rt.take_number === 2
+                                    ? 'bg-blue-100 text-blue-900 border border-blue-200'
+                                    : rt.take_number === 3
+                                    ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                                    : 'bg-amber-100 text-amber-900 border border-amber-200'
+                                }`}>
+                                  Take {rt.take_number}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-extrabold text-slate-700">{rt.initial_percentage}%</span>
+                                <span className="text-[11px] text-slate-400 block">{rt.initial_score}/{rt.initial_total} full</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-black text-slate-900">{rt.percentage}%</span>
+                                <span className="text-[11px] text-slate-500 block">{rt.score}/{rt.total_questions} solved</span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  +{rt.improvement_percentage}%
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                {rt.passed ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                                    <span>Passed (≥75%)</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    <span>Eligible for Take {rt.take_number + 1}</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
+                                {new Date(rt.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={() => setSelectedAttempt({ ...rt, isRetake: true })}
+                                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs transition shadow-xs"
+                                >
+                                  View Details
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

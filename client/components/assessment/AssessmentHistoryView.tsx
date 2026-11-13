@@ -93,7 +93,7 @@ export default function AssessmentHistoryView({
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-extrabold text-slate-900 text-sm sm:text-base">
-                      {attempt.grade} • {attempt.term} {isRetake ? '• Remedial Retake' : isPostTest ? '• Topic Post-Test' : ''}
+                      {attempt.grade} • {attempt.term} {isRetake ? `• Take ${attempt.take_number ?? 2} Remedial Retake` : isPostTest ? '• Topic Post-Test' : ''}
                     </span>
                     <span
                       className={`text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
@@ -298,7 +298,7 @@ export default function AssessmentHistoryView({
 
                       <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">
-                          Latest Retake (Missed Problems)
+                          Take {attempt.take_number ?? 2} Retake (Missed Problems)
                         </p>
                         <p className="text-xl font-black text-indigo-950 mt-1">
                           {attempt.percentage}%

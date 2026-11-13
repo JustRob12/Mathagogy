@@ -60,7 +60,7 @@ export default function AdminResultDetailModal({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-white/20 text-emerald-100">
-                  {attempt.grade} • {attempt.term} {isRetake ? '• Remedial Retake' : isPostTest ? '• Topic Post-Test' : ''}
+                  {attempt.grade} • {attempt.term} {isRetake ? `• Take ${attempt.take_number ?? 2} Retake` : isPostTest ? '• Topic Post-Test' : ''}
                 </span>
                 <span
                   className={`text-[11px] font-black px-2.5 py-0.5 rounded-full ${
@@ -104,7 +104,7 @@ export default function AdminResultDetailModal({
               )}
               {isRetake && (
                 <p className="text-xs text-emerald-200 font-bold mt-0.5">
-                  Initial Diagnostic: {attempt.initial_percentage ?? 0}% → Retake: {attempt.percentage}% ({attempt.improvement_percentage > 0 ? `+${attempt.improvement_percentage}%` : `${attempt.improvement_percentage}%`})
+                  1st Take (Initial): {attempt.initial_percentage ?? 0}% → Take {attempt.take_number ?? 2}: {attempt.percentage}% ({attempt.improvement_percentage > 0 ? `+${attempt.improvement_percentage}%` : `${attempt.improvement_percentage}%`})
                 </p>
               )}
               <p className="text-[11px] text-emerald-200/80 mt-0.5">
