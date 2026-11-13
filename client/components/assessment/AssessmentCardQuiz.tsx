@@ -629,7 +629,6 @@ export default function AssessmentCardQuiz({
             </div>
           </div>
         </div>
-        </div>
       </div>
     )
   }
