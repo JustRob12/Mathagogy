@@ -135,12 +135,17 @@ export interface RetakeAttempt {
   user_id: string
   grade: string
   term: string
+  take_number?: number // 2 for 2nd take (1st retake), 3 for 3rd take, 4 for 4th take, etc.
   initial_score: number
   initial_total: number
   initial_percentage: number
+  previous_score?: number
+  previous_percentage?: number
   score: number
   total_questions: number
   percentage: number
+  cumulative_score?: number
+  cumulative_percentage?: number
   improvement_percentage: number
   passed: boolean
   answers: {
@@ -182,9 +187,14 @@ export interface AssessmentAttempt {
   term: string
   test_type: 'diagnostic' | 'likert' | 'post_test' | 'retake'
   topic?: string
+  take_number?: number
   initial_score?: number
   initial_total?: number
   initial_percentage?: number
+  previous_score?: number
+  previous_percentage?: number
+  cumulative_score?: number
+  cumulative_percentage?: number
   improvement_percentage?: number
   score: number
   total_questions: number

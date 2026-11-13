@@ -55,6 +55,32 @@ export default function AssessmentCardQuiz({
 
   // Dedicated Term Retake State (combines all missed questions across the term)
   const [isRetakeActive, setIsRetakeActive] = useState(false)
+  const [retakeTakeNumber, setRetakeTakeNumber] = useState<number>(2)
+
+  // Determine next take number from previous retake attempts
+  useEffect(() => {
+    async function determineTakeNumber() {
+      try {
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from('retake_attempts')
+          .select('id, take_number')
+          .eq('user_id', userId)
+          .eq('grade', assessment.grade)
+          .eq('term', assessment.term)
+
+        if (!error && data && data.length > 0) {
+          const maxTake = Math.max(...data.map((d: any) => d.take_number || 2))
+          setRetakeTakeNumber(maxTake + 1)
+        } else {
+          setRetakeTakeNumber(2)
+        }
+      } catch (e) {
+        setRetakeTakeNumber(2)
+      }
+    }
+    determineTakeNumber()
+  }, [userId, assessment.grade, assessment.term])
 
   const statements = assessment.alignedLikertStatements || []
   const currentStatement = statements[likertIndex]
@@ -183,6 +209,7 @@ export default function AssessmentCardQuiz({
       <TermRetakeQuiz
         grade={assessment.grade}
         term={assessment.term}
+        takeNumber={retakeTakeNumber}
         initialScore={result.score}
         initialTotal={result.total}
         initialPercentage={result.percentage}
@@ -297,154 +324,7 @@ export default function AssessmentCardQuiz({
         </div>
 
         <div className="p-5 sm:p-8 space-y-8">
-          {/* 1. PERSONALIZED ADVICE BASED ON PERCENTAGE */}
-          <div
-            className={`p-5 sm:p-6 rounded-3xl border ${
-              advice.tier === 'exemplary'
-                ? 'bg-emerald-50/70 border-emerald-200'
-                : advice.tier === 'proficient'
-                ? 'bg-teal-50/70 border-teal-200'
-                : advice.tier === 'developing'
-                ? 'bg-amber-50/70 border-amber-200'
-                : 'bg-rose-50/70 border-rose-200'
-            }`}
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-              <div className="flex items-center gap-2.5">
-                <div
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
-                    advice.tier === 'exemplary'
-                      ? 'bg-emerald-700 text-white'
-                      : advice.tier === 'proficient'
-                      ? 'bg-teal-700 text-white'
-                      : advice.tier === 'developing'
-                      ? 'bg-amber-700 text-white'
-                      : 'bg-rose-700 text-white'
-                  }`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
-                    Personalized Advice (Based on Your Score: {result.percentage}%)
-                  </h3>
-                  <p className="text-xs text-slate-500">{advice.title}</p>
-                </div>
-              </div>
-
-              <span
-                className={`text-xs font-black px-3 py-1 rounded-full self-start sm:self-auto ${
-                  advice.tier === 'exemplary'
-                    ? 'bg-emerald-200 text-emerald-950'
-                    : advice.tier === 'proficient'
-                    ? 'bg-teal-200 text-teal-950'
-                    : advice.tier === 'developing'
-                    ? 'bg-amber-200 text-amber-950'
-                    : 'bg-rose-200 text-rose-950'
-                }`}
-              >
-                {advice.badge}
-              </span>
-            </div>
-
-            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium mb-4">
-              {advice.advice}
-            </p>
-
-            <div className="bg-white/90 rounded-2xl p-4 border border-slate-200/80 space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Recommended Study Action Plan:
-              </h4>
-              <ul className="space-y-1.5 text-xs text-slate-700">
-                {advice.recommendations.map((rec, rIdx) => (
-                  <li key={rIdx} className="flex items-start gap-2">
-                    <span className="text-emerald-700 font-bold shrink-0">•</span>
-                    <span>{rec}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          {/* 2. TABLE OF SPECIFICATIONS (TOS) COGNITIVE BREAKDOWN */}
-          <div>
-            <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
-                TOS
-              </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                  Table of Specifications (TOS) Cognitive Skills Breakdown
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Mastery percentage across Remembering, Understanding, and Applying domains
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-              {(['Remembering', 'Understanding', 'Applying'] as CognitiveSkill[]).map((skill) => {
-                const stat = result.tosStats[skill]
-                const isGood = stat.percentage >= 75
-                const isModerate = stat.percentage >= 50 && stat.percentage < 75
-
-                return (
-                  <div
-                    key={skill}
-                    className={`p-4 rounded-2xl border transition ${
-                      isGood
-                        ? 'bg-emerald-50/50 border-emerald-200'
-                        : isModerate
-                        ? 'bg-amber-50/50 border-amber-200'
-                        : 'bg-rose-50/50 border-rose-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-bold text-slate-900 text-sm">{skill}</span>
-                      <span
-                        className={`text-[11px] font-black px-2 py-0.5 rounded-full ${
-                          isGood
-                            ? 'bg-emerald-200 text-emerald-900'
-                            : isModerate
-                            ? 'bg-amber-200 text-amber-900'
-                            : 'bg-rose-200 text-rose-900'
-                        }`}
-                      >
-                        {stat.percentage}%
-                      </span>
-                    </div>
-
-                    <div className="w-full bg-slate-200 rounded-full h-2 mb-3 overflow-hidden">
-                      <div
-                        className={`h-2 rounded-full transition-all duration-500 ${
-                          isGood ? 'bg-emerald-600' : isModerate ? 'bg-amber-500' : 'bg-rose-500'
-                        }`}
-                        style={{ width: `${stat.percentage}%` }}
-                      />
-                    </div>
-
-                    <p className="text-[11px] text-slate-600 leading-snug">
-                      {skill === 'Remembering' &&
-                        'Recall of foundational terminology, shapes, formulas, and mathematical conventions.'}
-                      {skill === 'Understanding' &&
-                        'Comprehension of concepts, geometric properties, classifications, and relationships.'}
-                      {skill === 'Applying' &&
-                        'Computational execution, equation solving, unit conversion, and real-world word problems.'}
-                    </p>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* 3. TARGETED REMEDIAL RETAKE & TOPIC VIDEO LESSONS */}
+          {/* 1. TARGETED REMEDIAL RETAKE & TOPIC VIDEO LESSONS (DISPLAYED DIRECTLY ON SUBMIT) */}
           <div className="space-y-6">
             <div className="flex items-center gap-2.5 mb-2">
               <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-sm">
@@ -452,7 +332,7 @@ export default function AssessmentCardQuiz({
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                  Targeted Remedial Retake & Study Resources
+                  Targeted Remedial Retake & Video Lesson Resources
                 </h3>
                 <p className="text-xs text-slate-500">
                   Review the video tutorials below, then retake all questions you missed in {assessment.term}
@@ -469,14 +349,14 @@ export default function AssessmentCardQuiz({
                   <div className="space-y-1.5 max-w-xl">
                     <div className="flex items-center gap-2">
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-700 text-white">
-                        Remedial Retake
+                        Take {retakeTakeNumber} Remedial Retake
                       </span>
                       <span className="text-xs font-bold text-indigo-950">
                         {allMissedQuestions.length} Questions Missed Across {assessment.term}
                       </span>
                     </div>
                     <h4 className="text-base sm:text-lg font-extrabold text-slate-900">
-                      Retake Missed Questions for {assessment.term}
+                      Retake Missed Questions for {assessment.term} (Take {retakeTakeNumber})
                     </h4>
                     <p className="text-xs text-slate-600 leading-relaxed">
                       This retake combines all {allMissedQuestions.length} questions you answered incorrectly. Watch the recommended topic videos below, then start your retake to verify your learning.
@@ -493,7 +373,7 @@ export default function AssessmentCardQuiz({
                         <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        <span>Start Retake ({allMissedQuestions.length} Missed Questions)</span>
+                        <span>Start Take {retakeTakeNumber} Retake ({allMissedQuestions.length} Questions)</span>
                       </button>
                     ) : (
                       <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold">
@@ -601,6 +481,154 @@ export default function AssessmentCardQuiz({
               })}
             </div>
           </div>
+
+          {/* 2. PERSONALIZED ADVICE BASED ON PERCENTAGE */}
+          <div
+            className={`p-5 sm:p-6 rounded-3xl border ${
+              advice.tier === 'exemplary'
+                ? 'bg-emerald-50/70 border-emerald-200'
+                : advice.tier === 'proficient'
+                ? 'bg-teal-50/70 border-teal-200'
+                : advice.tier === 'developing'
+                ? 'bg-amber-50/70 border-amber-200'
+                : 'bg-rose-50/70 border-rose-200'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
+                    advice.tier === 'exemplary'
+                      ? 'bg-emerald-700 text-white'
+                      : advice.tier === 'proficient'
+                      ? 'bg-teal-700 text-white'
+                      : advice.tier === 'developing'
+                      ? 'bg-amber-700 text-white'
+                      : 'bg-rose-700 text-white'
+                  }`}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
+                    Personalized Advice (Based on Your Score: {result.percentage}%)
+                  </h3>
+                  <p className="text-xs text-slate-500">{advice.title}</p>
+                </div>
+              </div>
+
+              <span
+                className={`text-xs font-black px-3 py-1 rounded-full self-start sm:self-auto ${
+                  advice.tier === 'exemplary'
+                    ? 'bg-emerald-200 text-emerald-950'
+                    : advice.tier === 'proficient'
+                    ? 'bg-teal-200 text-teal-950'
+                    : advice.tier === 'developing'
+                    ? 'bg-amber-200 text-amber-950'
+                    : 'bg-rose-200 text-rose-950'
+                }`}
+              >
+                {advice.badge}
+              </span>
+            </div>
+
+            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium mb-4">
+              {advice.advice}
+            </p>
+
+            <div className="bg-white/90 rounded-2xl p-4 border border-slate-200/80 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Recommended Study Action Plan:
+              </h4>
+              <ul className="space-y-1.5 text-xs text-slate-700">
+                {advice.recommendations.map((rec, rIdx) => (
+                  <li key={rIdx} className="flex items-start gap-2">
+                    <span className="text-emerald-700 font-bold shrink-0">•</span>
+                    <span>{rec}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* 3. TABLE OF SPECIFICATIONS (TOS) COGNITIVE BREAKDOWN */}
+          <div>
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
+                TOS
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                  Table of Specifications (TOS) Cognitive Skills Breakdown
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Mastery percentage across Remembering, Understanding, and Applying domains
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+              {(['Remembering', 'Understanding', 'Applying'] as CognitiveSkill[]).map((skill) => {
+                const stat = result.tosStats[skill]
+                const isGood = stat.percentage >= 75
+                const isModerate = stat.percentage >= 50 && stat.percentage < 75
+
+                return (
+                  <div
+                    key={skill}
+                    className={`p-4 rounded-2xl border transition ${
+                      isGood
+                        ? 'bg-emerald-50/50 border-emerald-200'
+                        : isModerate
+                        ? 'bg-amber-50/50 border-amber-200'
+                        : 'bg-rose-50/50 border-rose-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-slate-900 text-sm">{skill}</span>
+                      <span
+                        className={`text-[11px] font-black px-2 py-0.5 rounded-full ${
+                          isGood
+                            ? 'bg-emerald-200 text-emerald-900'
+                            : isModerate
+                            ? 'bg-amber-200 text-amber-900'
+                            : 'bg-rose-200 text-rose-900'
+                        }`}
+                      >
+                        {stat.percentage}%
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-slate-200 rounded-full h-2 mb-3 overflow-hidden">
+                      <div
+                        className={`h-2 rounded-full transition-all duration-500 ${
+                          isGood ? 'bg-emerald-600' : isModerate ? 'bg-amber-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${stat.percentage}%` }}
+                      />
+                    </div>
+
+                    <p className="text-[11px] text-slate-600 leading-snug">
+                      {skill === 'Remembering' &&
+                        'Recall of foundational terminology, shapes, formulas, and mathematical conventions.'}
+                      {skill === 'Understanding' &&
+                        'Comprehension of concepts, geometric properties, classifications, and relationships.'}
+                      {skill === 'Applying' &&
+                        'Computational execution, equation solving, unit conversion, and real-world word problems.'}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
         </div>
       </div>
     )

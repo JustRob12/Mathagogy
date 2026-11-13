@@ -11,9 +11,11 @@ import { createClient } from '@/lib/supabase/client'
 interface TermRetakeQuizProps {
   grade: string
   term: string
+  takeNumber?: number // 2 = 2nd take (1st retake), 3 = 3rd take, 4 = 4th take, etc.
   initialScore: number
   initialTotal: number
   initialPercentage: number
+  previousPercentage?: number
   missedQuestions: RemedialQuestion[]
   userId: string
   onClose: () => void
@@ -21,11 +23,13 @@ interface TermRetakeQuizProps {
 }
 
 interface RetakeResultData {
+  takeNumber: number
   score: number
   total: number
   percentage: number
   improvementPercentage: number
   passed: boolean
+  remainingMissed: RemedialQuestion[]
   answers: {
     questionId: number
     question: string
@@ -40,25 +44,33 @@ interface RetakeResultData {
 export default function TermRetakeQuiz({
   grade,
   term,
+  takeNumber = 2,
   initialScore,
   initialTotal,
   initialPercentage,
+  previousPercentage,
   missedQuestions,
   userId,
   onClose,
   onSaved,
 }: TermRetakeQuizProps) {
+  const [currentTakeNumber, setCurrentTakeNumber] = useState<number>(takeNumber)
+  const [activeMissedQuestions, setActiveMissedQuestions] = useState<RemedialQuestion[]>(missedQuestions)
+  const [lastTakeScore, setLastTakeScore] = useState<number>(previousPercentage ?? initialPercentage)
   const [currentIndex, setCurrentIndex] = useState(0)
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({})
   const [result, setResult] = useState<RetakeResultData | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [isSolutionsOpen, setIsSolutionsOpen] = useState(false)
 
-  const currentQ = missedQuestions[currentIndex]
+  const currentQ = activeMissedQuestions[currentIndex]
   const currentAnswerText = currentQ ? userAnswers[currentQ.id] ?? '' : ''
   const isCurrentAnswered = currentAnswerText.trim().length > 0
-  const isLastQuestion = currentIndex === missedQuestions.length - 1
-  const progressPercent = Math.round(((currentIndex + 1) / missedQuestions.length) * 100)
+  const isLastQuestion = currentIndex === activeMissedQuestions.length - 1
+  const progressPercent = activeMissedQuestions.length > 0
+    ? Math.round(((currentIndex + 1) / activeMissedQuestions.length) * 100)
+    : 100
 
   const handleAnswerChange = (val: string) => {
     if (!currentQ) return
@@ -89,7 +101,7 @@ export default function TermRetakeQuiz({
     setSaveStatus('saving')
 
     let score = 0
-    const gradedAnswers = missedQuestions.map((q) => {
+    const gradedAnswers = activeMissedQuestions.map((q) => {
       const rawInput = userAnswers[q.id] ?? ''
       const isCorrect = evaluateAnswer(rawInput, q.answer)
       if (isCorrect) score += 1
@@ -104,17 +116,25 @@ export default function TermRetakeQuiz({
       }
     })
 
-    const total = missedQuestions.length
+    const total = activeMissedQuestions.length
     const percentage = total > 0 ? Math.round((score / total) * 100 * 10) / 10 : 0
     const improvementPercentage = Math.round((percentage - initialPercentage) * 10) / 10
     const passed = percentage >= 75
 
+    // Find questions still missed
+    const remainingMissed = activeMissedQuestions.filter((q) => {
+      const match = gradedAnswers.find((a) => a.questionId === q.id)
+      return !match || !match.isCorrect
+    })
+
     const retakeResult: RetakeResultData = {
+      takeNumber: currentTakeNumber,
       score,
       total,
       percentage,
       improvementPercentage,
       passed,
+      remainingMissed,
       answers: gradedAnswers,
     }
 
@@ -129,9 +149,12 @@ export default function TermRetakeQuiz({
         user_id: userId,
         grade,
         term,
+        take_number: currentTakeNumber,
         initial_score: initialScore,
         initial_total: initialTotal,
         initial_percentage: initialPercentage,
+        previous_score: initialScore,
+        previous_percentage: lastTakeScore,
         score,
         total_questions: total,
         percentage,
@@ -149,6 +172,7 @@ export default function TermRetakeQuiz({
           grade,
           term,
           test_type: 'retake',
+          take_number: currentTakeNumber,
           initial_score: initialScore,
           initial_total: initialTotal,
           initial_percentage: initialPercentage,
@@ -205,15 +229,15 @@ export default function TermRetakeQuiz({
           </div>
 
           <div className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-white/20 text-white mb-2">
-            {grade} • {term} Remedial Retake
+            {grade} • {term} • Take {result.takeNumber} Retake
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            Retake Assessment Completed
+            Take {result.takeNumber} Retake Completed
           </h2>
 
           <p className="text-white/80 mt-1 text-xs sm:text-sm font-medium">
-            Evaluation of Missed Questions Retake
+            Evaluation of Take {result.takeNumber} Missed Questions
           </p>
 
           {/* 3 Metric Cards: Initial Take vs Retake vs Improvement */}
@@ -221,7 +245,7 @@ export default function TermRetakeQuiz({
             {/* Card 1: Initial Result */}
             <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15">
               <span className="text-[10px] uppercase font-bold tracking-wider text-slate-300 block">
-                First / Initial Result
+                1st Take (Initial Diagnostic)
               </span>
               <p className="text-2xl sm:text-3xl font-black mt-1 text-white">
                 {initialPercentage}%
@@ -234,13 +258,13 @@ export default function TermRetakeQuiz({
             {/* Card 2: Retake Result */}
             <div className="p-4 rounded-2xl bg-white/15 backdrop-blur-md border border-white/25">
               <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-200 block">
-                Retake Score
+                Take {result.takeNumber} Score
               </span>
               <p className="text-2xl sm:text-3xl font-black mt-1 text-emerald-300">
                 {result.percentage}%
               </p>
               <p className="text-[11px] text-emerald-200/90 mt-0.5">
-                {result.score} of {result.total} missed solved
+                {result.score} of {result.total} solved correctly
               </p>
             </div>
 
@@ -259,17 +283,87 @@ export default function TermRetakeQuiz({
           </div>
 
           <div className="mt-4 text-xs font-medium">
-            {saveStatus === 'saving' && <span className="text-white/80">Saving retake verification to Supabase...</span>}
+            {saveStatus === 'saving' && <span className="text-white/80">Saving Take {result.takeNumber} verification to Supabase...</span>}
             {saveStatus === 'saved' && (
               <span className="text-emerald-200 font-bold">
-                Retake successfully recorded to study verification history
+                Take {result.takeNumber} successfully recorded to study verification history
               </span>
             )}
             {saveStatus === 'error' && (
-              <span className="text-rose-200">Could not record retake history</span>
+              <span className="text-rose-200">Could not record Take {result.takeNumber} history</span>
             )}
           </div>
         </div>
+
+        {/* Next Retake Action Card (Take N+1) */}
+        {result.remainingMissed.length > 0 ? (
+          <div className="p-5 sm:p-6 bg-gradient-to-r from-indigo-50/90 via-blue-50/70 to-purple-50/90 border-b border-indigo-200 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-700 text-white">
+                Next Retake Ready
+              </span>
+              <span className="text-xs font-bold text-indigo-900">
+                Take {result.takeNumber + 1}
+              </span>
+            </div>
+            <h4 className="text-base font-extrabold text-slate-900">
+              {result.remainingMissed.length} Question{result.remainingMissed.length > 1 ? 's' : ''} Still Need Review
+            </h4>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              You solved {result.score} of {result.total} questions. You can retake the remaining {result.remainingMissed.length} missed question{result.remainingMissed.length > 1 ? 's' : ''} right now for Take {result.takeNumber + 1}, or review the YouTube video lessons first until you pass the term.
+            </p>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setLastTakeScore(result.percentage)
+                  setActiveMissedQuestions(result.remainingMissed)
+                  setCurrentTakeNumber((prev) => prev + 1)
+                  setCurrentIndex(0)
+                  setUserAnswers({})
+                  setResult(null)
+                  setSaveStatus('idle')
+                  setIsSolutionsOpen(false)
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+                className="px-5 py-2.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white font-extrabold text-xs transition shadow-sm flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Start Take {result.takeNumber + 1} ({result.remainingMissed.length} Questions)</span>
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition text-center"
+              >
+                Review YouTube Video Lessons
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-5 sm:p-6 bg-emerald-50 border-b border-emerald-200 text-center space-y-2">
+            <span className="inline-block px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-700 text-white">
+              100% Term Mastery Achieved
+            </span>
+            <h4 className="text-base sm:text-lg font-black text-emerald-950">
+              Outstanding! All Previously Missed Questions Solved
+            </h4>
+            <p className="text-xs text-emerald-800 max-w-md mx-auto">
+              You have mastered every single question across {term} on Take {result.takeNumber}.
+            </p>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition shadow-sm"
+              >
+                Complete & Return to Dashboard
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Action Controls */}
         <div className="p-4 sm:p-5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -283,7 +377,7 @@ export default function TermRetakeQuiz({
             }}
             className="w-full sm:w-auto px-5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold text-xs sm:text-sm hover:bg-slate-100 transition shadow-xs text-center"
           >
-            Retake Again
+            Retake Current Set Again
           </button>
           <button
             onClick={onClose}
@@ -326,85 +420,83 @@ export default function TermRetakeQuiz({
             </p>
           </div>
 
-          {/* Question-by-Question Solution Breakdown */}
+          {/* Question-by-Question Solution Breakdown (Toggleable) */}
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Detailed Solutions for Retaken Questions ({result.answers.length} Problems)
+                Detailed Solutions for Take {result.takeNumber} ({result.answers.length} Problems)
               </h4>
-              <span className="text-xs text-slate-500 font-bold">
-                {result.score} of {result.total} Correct
-              </span>
+              <button
+                type="button"
+                onClick={() => setIsSolutionsOpen(!isSolutionsOpen)}
+                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1.5 transition"
+              >
+                <span>{isSolutionsOpen ? 'Hide Solutions' : 'View Solutions'}</span>
+                <svg className={`w-3.5 h-3.5 transition-transform ${isSolutionsOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
             </div>
 
-            <div className="space-y-3.5">
-              {result.answers.map((item, idx) => (
-                <div
-                  key={idx}
-                  className={`p-4 rounded-2xl border transition shadow-xs space-y-2.5 ${
-                    item.isCorrect
-                      ? 'bg-emerald-50/40 border-emerald-200'
-                      : 'bg-amber-50/40 border-amber-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-white text-slate-700 border border-slate-200 flex items-center justify-center font-bold text-xs shrink-0">
-                        #{idx + 1}
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200 truncate max-w-[200px]">
-                        {item.topic}
-                      </span>
-                    </div>
+            {isSolutionsOpen && (
+              <div className="space-y-3.5 pt-1">
+                {result.answers.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-4 rounded-2xl border transition shadow-xs space-y-2.5 ${
+                      item.isCorrect
+                        ? 'bg-emerald-50/40 border-emerald-200'
+                        : 'bg-amber-50/40 border-amber-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-lg bg-white text-slate-700 border border-slate-200 flex items-center justify-center font-bold text-xs shrink-0">
+                          #{idx + 1}
+                        </span>
+                        <span className="text-[11px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200 truncate max-w-[200px]">
+                          {item.topic}
+                        </span>
+                      </div>
 
-                    <span
-                      className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                        item.isCorrect
-                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
-                          : 'bg-amber-100 text-amber-900 border border-amber-200'
-                      }`}
-                    >
-                      {item.isCorrect ? 'Correct on Retake' : 'Review Needed'}
-                    </span>
-                  </div>
-
-                  <p className="text-xs sm:text-sm font-bold text-slate-900 leading-relaxed">
-                    {item.question}
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Your Retake Answer:
-                      </span>
                       <span
-                        className={`font-bold ${
-                          item.isCorrect ? 'text-emerald-700' : 'text-amber-700'
+                        className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                          item.isCorrect
+                            ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                            : 'bg-amber-100 text-amber-900 border border-amber-200'
                         }`}
                       >
-                        {item.userAnswer || '(No answer provided)'}
+                        {item.isCorrect ? 'Correct' : 'Needs Review'}
                       </span>
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Canonical Solution:
-                      </span>
-                      <span className="font-extrabold text-slate-800">
-                        {item.correctAnswer}
-                      </span>
+                    <p className="text-xs sm:text-sm font-semibold text-slate-900 leading-snug">
+                      {item.question}
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-200/60">
+                      <p className="text-slate-600">
+                        <span className="font-bold">Your Take {result.takeNumber} Answer:</span>{' '}
+                        <span className={item.isCorrect ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                          {item.userAnswer || '(None)'}
+                        </span>
+                      </p>
+                      <p className="text-slate-600">
+                        <span className="font-bold">Correct Solution:</span>{' '}
+                        <span className="font-extrabold text-slate-800">{item.correctAnswer}</span>
+                      </p>
                     </div>
+
+                    {item.explanation && (
+                      <p className="text-[11px] text-slate-500 pt-1 border-t border-slate-200/40 leading-relaxed">
+                        <span className="font-bold text-slate-600">Step-by-Step Explanation:</span>{' '}
+                        {item.explanation}
+                      </p>
+                    )}
                   </div>
-
-                  {item.explanation && (
-                    <div className="pt-2 border-t border-slate-200/60 text-[11px] text-slate-600 leading-relaxed">
-                      <span className="font-bold text-slate-700">Step Explanation:</span>{' '}
-                      {item.explanation}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -422,14 +514,14 @@ export default function TermRetakeQuiz({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                {grade} • {term} Remedial Retake
+                {grade} • {term} • Take {currentTakeNumber} Retake
               </span>
               <span className="text-xs text-slate-500 font-semibold truncate max-w-[220px]">
                 {currentQ?.topic ?? 'Mathematics'}
               </span>
             </div>
             <h3 className="text-sm sm:text-base font-extrabold text-slate-900 mt-1">
-              Retake Question {currentIndex + 1} of {missedQuestions.length}
+              Retake Question {currentIndex + 1} of {activeMissedQuestions.length}
             </h3>
           </div>
 
