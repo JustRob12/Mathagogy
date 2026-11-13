@@ -5,14 +5,16 @@ import type {
   Assessment,
   DiagnosticResult,
   CognitiveSkill,
-  SeverityLevel,
+  TopicAssessmentResult,
 } from '@/lib/assessments'
 import {
   gradeDiagnostic,
+  evaluateAnswer,
   LIKERT_RESPONSE_SCALE,
   getLikertInterpretation,
 } from '@/lib/assessments'
 import { createClient } from '@/lib/supabase/client'
+import TermRetakeQuiz from './TermRetakeQuiz'
 
 interface AssessmentCardQuizProps {
   assessment: Assessment
@@ -50,6 +52,9 @@ export default function AssessmentCardQuiz({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
     initialResult ? 'saved' : 'idle'
   )
+
+  // Dedicated Term Retake State (combines all missed questions across the term)
+  const [isRetakeActive, setIsRetakeActive] = useState(false)
 
   const statements = assessment.alignedLikertStatements || []
   const currentStatement = statements[likertIndex]
@@ -136,7 +141,7 @@ export default function AssessmentCardQuiz({
         percentage: graded.percentage,
         passed: graded.passed,
         answers: graded.userAnswers,
-        weak_topics: graded.topicResults.filter((t) => t.severity !== 'Mastered'),
+        weak_topics: graded.topicResults.filter((t) => t.status !== 'Mastered'),
         category_scores: graded.tosStats,
       })
 
@@ -163,24 +168,41 @@ export default function AssessmentCardQuiz({
     setDiagIndex(0)
     setLikertResponses({})
     setUserAnswers({})
+    setIsRetakeActive(false)
     setSaveStatus('idle')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   // -------------------------------------------------------------
-  // STAGE 3: RESULT VIEW (PERCENTAGES ONLY, NO MISSED QUESTIONS)
+  // DEDICATED TERM RETAKE QUIZ (COMBINES ALL MISSED QUESTIONS)
+  // -------------------------------------------------------------
+  if (isRetakeActive && result) {
+    const allMissedQuestions = result.topicResults.flatMap((tr) => tr.missedQuestions)
+
+    return (
+      <TermRetakeQuiz
+        grade={assessment.grade}
+        term={assessment.term}
+        initialScore={result.score}
+        initialTotal={result.total}
+        initialPercentage={result.percentage}
+        missedQuestions={allMissedQuestions}
+        userId={userId}
+        onClose={() => {
+          setIsRetakeActive(false)
+          if (onSaved) onSaved()
+        }}
+        onSaved={onSaved}
+      />
+    )
+  }
+
+  // -------------------------------------------------------------
+  // STAGE 3: RESULT VIEW (PERCENTAGES ONLY, ADVICE BASED ON PERCENTAGE,
+  // NO MATH DIFFICULTIES LABELING, POST-TEST BUTTON PER TOPIC)
   // -------------------------------------------------------------
   if (stage === 'result' && result) {
-    const criticalTopics = result.topicResults.filter((t) => t.severity === 'Critical')
-    const moderateTopics = result.topicResults.filter((t) => t.severity === 'Moderate')
-    const masteredTopics = result.topicResults.filter((t) => t.severity === 'Mastered')
-
-    // Find blind spots and underconfident topics for comparative insight
-    const blindSpots = result.topicResults.filter((t) => t.quadrant === 'Blind Spot')
-    const underconfident = result.topicResults.filter((t) => t.quadrant === 'Underconfident')
-    const confirmedGaps = result.topicResults.filter(
-      (t) => t.quadrant === 'Confirmed Learning Gap'
-    )
+    const advice = result.percentageAdvice
 
     return (
       <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden max-w-4xl mx-auto my-3 sm:my-6">
@@ -205,7 +227,7 @@ export default function AssessmentCardQuiz({
           </div>
 
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight">
-            {result.passed ? 'Diagnostic Assessment Passed' : 'Targeted Remediation Recommended'}
+            {result.passed ? 'Diagnostic Assessment Passed' : 'Targeted Review Recommended'}
           </h2>
           <p className="text-white/80 mt-1 text-xs sm:text-sm font-medium">
             {assessment.grade} • {assessment.term} Comprehensive Diagnostic Report
@@ -246,7 +268,7 @@ export default function AssessmentCardQuiz({
                 {result.passed ? 'Passed' : 'Needs Review'}
               </p>
               <p className="text-[11px] text-white/70 mt-1 font-medium">
-                {result.passed ? 'Competency Achieved' : 'Focus on Remedial Areas'}
+                {result.passed ? 'Benchmark Met' : 'Review Interventions Below'}
               </p>
             </div>
           </div>
@@ -275,7 +297,83 @@ export default function AssessmentCardQuiz({
         </div>
 
         <div className="p-5 sm:p-8 space-y-8">
-          {/* 1. TABLE OF SPECIFICATIONS (TOS) BREAKDOWN */}
+          {/* 1. PERSONALIZED ADVICE BASED ON PERCENTAGE */}
+          <div
+            className={`p-5 sm:p-6 rounded-3xl border ${
+              advice.tier === 'exemplary'
+                ? 'bg-emerald-50/70 border-emerald-200'
+                : advice.tier === 'proficient'
+                ? 'bg-teal-50/70 border-teal-200'
+                : advice.tier === 'developing'
+                ? 'bg-amber-50/70 border-amber-200'
+                : 'bg-rose-50/70 border-rose-200'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
+                    advice.tier === 'exemplary'
+                      ? 'bg-emerald-700 text-white'
+                      : advice.tier === 'proficient'
+                      ? 'bg-teal-700 text-white'
+                      : advice.tier === 'developing'
+                      ? 'bg-amber-700 text-white'
+                      : 'bg-rose-700 text-white'
+                  }`}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
+                    Personalized Advice (Based on Your Score: {result.percentage}%)
+                  </h3>
+                  <p className="text-xs text-slate-500">{advice.title}</p>
+                </div>
+              </div>
+
+              <span
+                className={`text-xs font-black px-3 py-1 rounded-full self-start sm:self-auto ${
+                  advice.tier === 'exemplary'
+                    ? 'bg-emerald-200 text-emerald-950'
+                    : advice.tier === 'proficient'
+                    ? 'bg-teal-200 text-teal-950'
+                    : advice.tier === 'developing'
+                    ? 'bg-amber-200 text-amber-950'
+                    : 'bg-rose-200 text-rose-950'
+                }`}
+              >
+                {advice.badge}
+              </span>
+            </div>
+
+            <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium mb-4">
+              {advice.advice}
+            </p>
+
+            <div className="bg-white/90 rounded-2xl p-4 border border-slate-200/80 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Recommended Study Action Plan:
+              </h4>
+              <ul className="space-y-1.5 text-xs text-slate-700">
+                {advice.recommendations.map((rec, rIdx) => (
+                  <li key={rIdx} className="flex items-start gap-2">
+                    <span className="text-emerald-700 font-bold shrink-0">•</span>
+                    <span>{rec}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* 2. TABLE OF SPECIFICATIONS (TOS) COGNITIVE BREAKDOWN */}
           <div>
             <div className="flex items-center gap-2.5 mb-3">
               <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
@@ -283,10 +381,10 @@ export default function AssessmentCardQuiz({
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                  Table of Specifications (TOS) Cognitive Skills Analysis
+                  Table of Specifications (TOS) Cognitive Skills Breakdown
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Performance across Remembering, Understanding, and Applying cognitive levels
+                  Mastery percentage across Remembering, Understanding, and Applying domains
                 </p>
               </div>
             </div>
@@ -305,7 +403,7 @@ export default function AssessmentCardQuiz({
                         ? 'bg-emerald-50/50 border-emerald-200'
                         : isModerate
                         ? 'bg-amber-50/50 border-amber-200'
-                        : 'bg-red-50/50 border-red-200'
+                        : 'bg-rose-50/50 border-rose-200'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -316,7 +414,7 @@ export default function AssessmentCardQuiz({
                             ? 'bg-emerald-200 text-emerald-900'
                             : isModerate
                             ? 'bg-amber-200 text-amber-900'
-                            : 'bg-red-200 text-red-900'
+                            : 'bg-rose-200 text-rose-900'
                         }`}
                       >
                         {stat.percentage}%
@@ -326,7 +424,7 @@ export default function AssessmentCardQuiz({
                     <div className="w-full bg-slate-200 rounded-full h-2 mb-3 overflow-hidden">
                       <div
                         className={`h-2 rounded-full transition-all duration-500 ${
-                          isGood ? 'bg-emerald-600' : isModerate ? 'bg-amber-500' : 'bg-red-500'
+                          isGood ? 'bg-emerald-600' : isModerate ? 'bg-amber-500' : 'bg-rose-500'
                         }`}
                         style={{ width: `${stat.percentage}%` }}
                       />
@@ -334,292 +432,173 @@ export default function AssessmentCardQuiz({
 
                     <p className="text-[11px] text-slate-600 leading-snug">
                       {skill === 'Remembering' &&
-                        'Recall of foundational terminology, shapes, formulas, and mathematical facts.'}
+                        'Recall of foundational terminology, shapes, formulas, and mathematical conventions.'}
                       {skill === 'Understanding' &&
                         'Comprehension of concepts, geometric properties, classifications, and relationships.'}
                       {skill === 'Applying' &&
-                        'Computational execution, equation solving, unit conversion, and real-world problem solving.'}
+                        'Computational execution, equation solving, unit conversion, and real-world word problems.'}
                     </p>
-
-                    <div className="mt-3 pt-2.5 border-t border-slate-200/60">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                        Assessed Topics:
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {stat.topics.slice(0, 3).map((t, idx) => (
-                          <span
-                            key={idx}
-                            className="text-[10px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[190px]"
-                            title={t}
-                          >
-                            {t}
-                          </span>
-                        ))}
-                        {stat.topics.length > 3 && (
-                          <span className="text-[10px] text-slate-400 font-semibold px-1 py-0.5">
-                            +{stat.topics.length - 3} more
-                          </span>
-                        )}
-                      </div>
-                    </div>
                   </div>
                 )
               })}
             </div>
           </div>
 
-          {/* 2. TOPIC DIFFICULTY & SEVERITY LEVEL ANALYSIS */}
-          <div>
-            <div className="flex items-center gap-2.5 mb-3">
+          {/* 3. TARGETED REMEDIAL RETAKE & TOPIC VIDEO LESSONS */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-2.5 mb-2">
               <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold text-sm">
-                GAP
+                RTK
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                  Topic Difficulties and Severity Levels
+                  Targeted Remedial Retake & Study Resources
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Identified mathematical competencies categorized by urgency and performance percentage
+                  Review the video tutorials below, then retake all questions you missed in {assessment.term}
                 </p>
               </div>
             </div>
 
-            <div className="space-y-3.5">
+            {/* RETAKE ACTION CARD BEFORE YOUTUBE LINKS */}
+            {(() => {
+              const allMissedQuestions = result.topicResults.flatMap((tr) => tr.missedQuestions)
+
+              return (
+                <div className="p-5 sm:p-6 rounded-3xl border-2 border-indigo-200 bg-gradient-to-r from-indigo-50/90 via-blue-50/60 to-purple-50/90 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5 max-w-xl">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-700 text-white">
+                        Remedial Retake
+                      </span>
+                      <span className="text-xs font-bold text-indigo-950">
+                        {allMissedQuestions.length} Questions Missed Across {assessment.term}
+                      </span>
+                    </div>
+                    <h4 className="text-base sm:text-lg font-extrabold text-slate-900">
+                      Retake Missed Questions for {assessment.term}
+                    </h4>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      This retake combines all {allMissedQuestions.length} questions you answered incorrectly. Watch the recommended topic videos below, then start your retake to verify your learning.
+                    </p>
+                  </div>
+
+                  <div className="shrink-0">
+                    {allMissedQuestions.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsRetakeActive(true)}
+                        className="w-full md:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3 rounded-2xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-xs sm:text-sm font-extrabold transition shadow-md active:scale-[0.98]"
+                      >
+                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span>Start Retake ({allMissedQuestions.length} Missed Questions)</span>
+                      </button>
+                    ) : (
+                      <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold">
+                        <svg className="w-4 h-4 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>100% Mastery • No Retake Needed</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* TOPIC VIDEO LESSONS (NO BUTTON PER TOPIC) */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 pt-2">
+                Recommended Video Tutorials by Topic:
+              </h4>
+
               {result.topicResults.map((tr, idx) => {
-                const isCritical = tr.severity === 'Critical'
-                const isModerate = tr.severity === 'Moderate'
+                const hasMissed = tr.missedQuestions && tr.missedQuestions.length > 0
 
                 return (
                   <div
                     key={idx}
-                    className={`rounded-2xl border p-4 sm:p-5 transition ${
-                      isCritical
-                        ? 'border-red-200 bg-red-50/40 hover:border-red-300'
-                        : isModerate
-                        ? 'border-amber-200 bg-amber-50/40 hover:border-amber-300'
-                        : 'border-emerald-200 bg-emerald-50/30 hover:border-emerald-300'
+                    className={`rounded-3xl border p-5 sm:p-6 transition shadow-xs ${
+                      hasMissed
+                        ? 'border-slate-300 bg-slate-50/60'
+                        : 'border-emerald-200 bg-emerald-50/30'
                     }`}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
+                    {/* Topic Header & Mastery Status */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
                           <span
                             className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
-                              isCritical
-                                ? 'bg-red-200 text-red-900'
-                                : isModerate
-                                ? 'bg-amber-200 text-amber-900'
-                                : 'bg-emerald-200 text-emerald-900'
+                              tr.status === 'Mastered'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : 'bg-amber-100 text-amber-800 border border-amber-200'
                             }`}
                           >
-                            {tr.severityLabel}
+                            {tr.statusLabel}
                           </span>
-
-                          <span className="text-[11px] font-bold text-slate-500">
+                          <span className="text-xs text-slate-400">
                             Cognitive Skill: {tr.cognitiveSkills.join(', ')}
                           </span>
                         </div>
-                        <h4 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+                        <h4 className="text-base font-extrabold text-slate-900 mt-1">
                           {tr.topic}
                         </h4>
                       </div>
 
                       <div className="text-left sm:text-right shrink-0">
-                        <p className="text-xl sm:text-2xl font-black text-slate-900">
-                          {tr.percentage}%
-                        </p>
-                        <p className="text-[10px] font-semibold text-slate-400">
-                          Diagnostic Mastery
-                        </p>
+                        <p className="text-2xl font-black text-slate-900">{tr.percentage}%</p>
+                        <p className="text-[10px] text-slate-400 font-semibold">Topic Mastery</p>
                       </div>
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="w-full bg-slate-200 rounded-full h-1.5 mb-3 overflow-hidden">
+                    <div className="w-full bg-slate-200 rounded-full h-1.5 mb-4 overflow-hidden">
                       <div
                         className={`h-1.5 rounded-full ${
-                          isCritical ? 'bg-red-500' : isModerate ? 'bg-amber-500' : 'bg-emerald-600'
+                          tr.percentage >= 75 ? 'bg-emerald-600' : 'bg-amber-500'
                         }`}
                         style={{ width: `${tr.percentage}%` }}
                       />
                     </div>
 
-                    {/* Quadrant Analysis & Study Tip */}
-                    <div className="bg-white/80 rounded-xl p-3 border border-slate-200/70 text-xs space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-slate-700">Perception Alignment:</span>
-                        <span className="font-semibold text-slate-900">
-                          Rated {tr.perceivedRating}/5 ({tr.perceivedInterpretation})
-                        </span>
-                        <span className="text-slate-300">•</span>
-                        <span
-                          className={`font-black ${
-                            tr.quadrant === 'Blind Spot'
-                              ? 'text-amber-700'
-                              : tr.quadrant === 'Underconfident'
-                              ? 'text-blue-700'
-                              : tr.quadrant === 'Confirmed Learning Gap'
-                              ? 'text-red-700'
-                              : 'text-emerald-700'
-                          }`}
-                        >
-                          {tr.quadrant}
-                        </span>
-                      </div>
-                      <p className="text-slate-600 text-[11px] leading-relaxed">
-                        {tr.quadrantAnalysis}
-                      </p>
-                      <p className="text-slate-800 text-[11px] font-medium pt-1 border-t border-slate-100">
-                        <span className="font-bold text-emerald-800">Practical Recommendation:</span>{' '}
-                        {tr.studyTip}
-                      </p>
+                    {/* Practical Recommendation / Study Strategy */}
+                    <div className="bg-white rounded-xl p-3.5 border border-slate-200 text-xs space-y-1 mb-4">
+                      <p className="font-bold text-slate-700">Study Tip & Concept Guidance:</p>
+                      <p className="text-slate-600 leading-relaxed">{tr.studyTip}</p>
                     </div>
 
-                    {/* Curated YouTube Video Lessons */}
-                    {tr.youtubeLinks && tr.youtubeLinks.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap gap-2">
-                        {tr.youtubeLinks.map((url, linkIdx) => (
+                    {/* Curated YouTube Video Lessons (Only Video Links, No Button per Topic) */}
+                    <div className="pt-3 border-t border-slate-200/80 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-slate-700 uppercase tracking-wider mr-1">
+                        Video Lessons:
+                      </span>
+                      {tr.youtubeLinks && tr.youtubeLinks.length > 0 ? (
+                        tr.youtubeLinks.map((url, linkIdx) => (
                           <a
                             key={linkIdx}
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-xs font-bold transition shadow-sm"
+                            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-xs font-bold transition shadow-xs"
                           >
                             <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
                               <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
                             </svg>
                             <span>Watch Video Lesson {tr.youtubeLinks.length > 1 ? `#${linkIdx + 1}` : ''}</span>
                           </a>
-                        ))}
-                      </div>
-                    )}
+                        ))
+                      ) : (
+                        <span className="text-xs text-slate-400 italic">
+                          No external video required. Review class notes for this concept.
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )
               })}
-            </div>
-          </div>
-
-          {/* 3. LIKERT PERCEPTION VS ACTUAL PERFORMANCE MATRIX */}
-          <div>
-            <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-sm">
-                MX
-              </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                  Perceived Confidence vs Actual Performance Matrix
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Metacognitive comparison comparing student self-efficacy with diagnostic assessment outcomes
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {/* Confirmed Gaps */}
-              <div className="p-4 rounded-2xl bg-red-50/60 border border-red-200">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-bold text-red-950 text-xs sm:text-sm">
-                    Confirmed Learning Gaps ({confirmedGaps.length})
-                  </h4>
-                  <span className="text-[10px] font-black px-2 py-0.5 rounded bg-red-200 text-red-900">
-                    Highest Priority
-                  </span>
-                </div>
-                <p className="text-[11px] text-red-800 mb-2">
-                  Topics where you rated low confidence and scored below 75%.
-                </p>
-                {confirmedGaps.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No confirmed gaps in this test.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {confirmedGaps.map((t, i) => (
-                      <li key={i} className="text-xs font-semibold text-slate-800 list-disc list-inside">
-                        {t.topic} ({t.percentage}%)
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* Blind Spots */}
-              <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-bold text-amber-950 text-xs sm:text-sm">
-                    Blind Spots / Execution Gaps ({blindSpots.length})
-                  </h4>
-                  <span className="text-[10px] font-black px-2 py-0.5 rounded bg-amber-200 text-amber-900">
-                    Misconceptions
-                  </span>
-                </div>
-                <p className="text-[11px] text-amber-800 mb-2">
-                  Topics where you felt confident (rated 4-5) but missed accuracy benchmarks (&lt;75%).
-                </p>
-                {blindSpots.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No blind spots identified.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {blindSpots.map((t, i) => (
-                      <li key={i} className="text-xs font-semibold text-slate-800 list-disc list-inside">
-                        {t.topic} ({t.percentage}%)
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* Underconfident */}
-              <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-200">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-bold text-blue-950 text-xs sm:text-sm">
-                    Underconfident Mastery ({underconfident.length})
-                  </h4>
-                  <span className="text-[10px] font-black px-2 py-0.5 rounded bg-blue-200 text-blue-900">
-                    Latent Strength
-                  </span>
-                </div>
-                <p className="text-[11px] text-blue-800 mb-2">
-                  Topics where you felt hesitant or anxious, yet achieved solid passing accuracy (≥75%).
-                </p>
-                {underconfident.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No underconfident topics identified.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {underconfident.map((t, i) => (
-                      <li key={i} className="text-xs font-semibold text-slate-800 list-disc list-inside">
-                        {t.topic} ({t.percentage}%)
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* Mastered */}
-              <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-bold text-emerald-950 text-xs sm:text-sm">
-                    Mastered Competencies ({masteredTopics.length})
-                  </h4>
-                  <span className="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">
-                    Achieved
-                  </span>
-                </div>
-                <p className="text-[11px] text-emerald-800 mb-2">
-                  High confidence and strong diagnostic performance (≥75%).
-                </p>
-                {masteredTopics.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No topics fully mastered yet.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {masteredTopics.map((t, i) => (
-                      <li key={i} className="text-xs font-semibold text-slate-800 list-disc list-inside">
-                        {t.topic} ({t.percentage}%)
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
             </div>
           </div>
         </div>
@@ -802,7 +781,8 @@ export default function AssessmentCardQuiz({
   }
 
   // -------------------------------------------------------------
-  // STAGE 2: DIAGNOSTIC TEST (DIRECT INPUT, NO MULTIPLE CHOICE)
+  // STAGE 2: DIAGNOSTIC TEST (DIRECT INPUT, NO MULTIPLE CHOICE,
+  // NO DIFFICULTY LABELS)
   // -------------------------------------------------------------
   const diagProgressPercent = Math.round(
     ((diagIndex + 1) / assessment.questions.length) * 100
@@ -846,13 +826,10 @@ export default function AssessmentCardQuiz({
 
       {/* Question Card */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden p-5 sm:p-7 md:p-8">
-        {/* Topic & Cognitive Domain Badges */}
-        <div className="flex flex-wrap items-center gap-2 mb-3">
+        {/* Topic Badge (No difficulty labels) */}
+        <div className="mb-3">
           <span className="text-[11px] uppercase tracking-wider font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200 inline-block">
             {currentQuestion.topic}
-          </span>
-          <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
-            Cognitive Domain: {currentQuestion.cognitiveSkill}
           </span>
         </div>
 

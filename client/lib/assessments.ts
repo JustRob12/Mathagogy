@@ -65,15 +65,23 @@ export interface TOSSkillStats {
   topics: string[]
 }
 
-export type SeverityLevel = 'Critical' | 'Moderate' | 'Mastered'
+export interface RemedialQuestion {
+  id: number
+  question: string
+  answer: string
+  cognitiveSkill: CognitiveSkill
+  userAnswer: string
+  explanation: string
+  topic?: string
+}
 
 export interface TopicAssessmentResult {
   topic: string
   correct: number
   total: number
   percentage: number
-  severity: SeverityLevel
-  severityLabel: string
+  status: 'Mastered' | 'Review Recommended'
+  statusLabel: string
   cognitiveSkills: CognitiveSkill[]
   perceivedRating: number // 1 - 5 from Likert
   perceivedInterpretation: string
@@ -81,6 +89,15 @@ export interface TopicAssessmentResult {
   quadrantAnalysis: string
   studyTip: string
   youtubeLinks: string[]
+  missedQuestions: RemedialQuestion[]
+}
+
+export interface PercentageAdvice {
+  tier: 'exemplary' | 'proficient' | 'developing' | 'foundational'
+  title: string
+  badge: string
+  advice: string
+  recommendations: string[]
 }
 
 export interface DiagnosticResult {
@@ -92,6 +109,7 @@ export interface DiagnosticResult {
   topicResults: TopicAssessmentResult[]
   likertResponses: Record<number, number>
   averageLikertRating: number
+  percentageAdvice: PercentageAdvice
   userAnswers: {
     questionId: number
     userAnswer: string
@@ -112,12 +130,62 @@ export interface LikertResult {
   responses: Record<number, number>
 }
 
+export interface RetakeAttempt {
+  id: string
+  user_id: string
+  grade: string
+  term: string
+  initial_score: number
+  initial_total: number
+  initial_percentage: number
+  score: number
+  total_questions: number
+  percentage: number
+  improvement_percentage: number
+  passed: boolean
+  answers: {
+    questionId: number
+    question: string
+    userAnswer: string
+    correctAnswer: string
+    isCorrect: boolean
+    explanation: string
+  }[]
+  completed_at: string
+}
+
+export interface PostTestAttempt {
+  id: string
+  user_id: string
+  grade: string
+  term: string
+  topic: string
+  score: number
+  total_questions: number
+  percentage: number
+  passed: boolean
+  answers: {
+    questionId: number
+    question: string
+    userAnswer: string
+    correctAnswer: string
+    isCorrect: boolean
+    explanation: string
+  }[]
+  completed_at: string
+}
+
 export interface AssessmentAttempt {
   id: string
   user_id: string
   grade: string
   term: string
-  test_type: 'diagnostic' | 'likert'
+  test_type: 'diagnostic' | 'likert' | 'post_test' | 'retake'
+  topic?: string
+  initial_score?: number
+  initial_total?: number
+  initial_percentage?: number
+  improvement_percentage?: number
   score: number
   total_questions: number
   percentage: number
@@ -221,7 +289,207 @@ export function getLikertInterpretation(rating: number): string {
 }
 
 /**
- * Grade diagnostic test with TOS and Likert comparison
+ * Generates tailored pedagogical advice based on diagnostic test percentage
+ */
+export function getAdviceByPercentage(percentage: number): PercentageAdvice {
+  if (percentage >= 90) {
+    return {
+      tier: 'exemplary',
+      title: 'Exemplary Mastery',
+      badge: `${percentage}% Score • Advanced`,
+      advice:
+        'Outstanding work! You have shown superior conceptual understanding and procedural fluency across this term\'s mathematics competencies. Your high accuracy indicates you are ready for advanced enrichment challenges.',
+      recommendations: [
+        'Challenge yourself with higher-level non-routine problems and mathematical olympiad questions.',
+        'Deepen your mastery by explaining problem-solving strategies to classmates or study groups.',
+        'Preview upcoming term topics to maintain momentum and stay ahead in the curriculum.',
+      ],
+    }
+  } else if (percentage >= 75) {
+    return {
+      tier: 'proficient',
+      title: 'Proficient Mastery (Benchmark Met)',
+      badge: `${percentage}% Score • Proficient`,
+      advice:
+        'Great job! You have achieved the standard 75% mastery benchmark and established a solid working foundation. With focused attention on the few missed areas below, you can reach top-tier performance.',
+      recommendations: [
+        'Review the specific practice questions below for topics where minor errors occurred.',
+        'Practice writing down intermediate calculation steps to prevent careless arithmetic or sign slips.',
+        'Consolidate your recall of key geometric formulas and algebraic properties through quick periodic reviews.',
+      ],
+    }
+  } else if (percentage >= 50) {
+    return {
+      tier: 'developing',
+      title: 'Developing Competency (Review Needed)',
+      badge: `${percentage}% Score • Review Needed`,
+      advice:
+        'You have grasped key foundational principles, but there are inconsistent gaps in computation and concept application. Targeted remedial review will help you reach full benchmark passing.',
+      recommendations: [
+        'Watch the provided YouTube video lessons for each topic that scored below 75%.',
+        'Solve each remedial practice problem provided below, following the step-by-step guidance provided.',
+        'Focus on understanding the mathematical reasoning behind each formula instead of relying on rote memorization.',
+      ],
+    }
+  } else {
+    return {
+      tier: 'foundational',
+      title: 'Foundational Support Required',
+      badge: `${percentage}% Score • Foundational Focus`,
+      advice:
+        'This diagnostic assessment indicates that fundamental concepts and procedural skills need structured review. Remember that a diagnostic test is not a final grade—it is a roadmap showing exactly where to focus your effort.',
+      recommendations: [
+        'Start with the curated video tutorials; pause frequently, take notes, and work through example problems alongside the instructor.',
+        'Tackle the remedial practice questions below one at a time, reviewing the step-by-step solutions.',
+        'Dedicate 20 to 30 minutes of daily practice and seek guidance from your math teacher or tutor on challenging topics.',
+      ],
+    }
+  }
+}
+
+/**
+ * Generates advice for the Likert Experiences Questionnaire based on readiness percentage
+ */
+export function getLikertAdviceByPercentage(percentage: number) {
+  if (percentage >= 80) {
+    return {
+      title: 'High Confidence & Growth Mindset',
+      badge: `${percentage}% Readiness Index`,
+      advice:
+        'Your survey responses reflect exceptional mathematics self-efficacy, a strong growth mindset, and healthy academic motivation. You view challenges as opportunities to learn and feel capable when tackling new math problems.',
+      tips: [
+        'Leverage your high self-efficacy to embrace challenging, multi-step problem sets.',
+        'Share your strategies and positive mindset with peers who may experience math anxiety.',
+        'Keep tracking your learning progress to maintain your enthusiasm throughout the academic term.',
+      ],
+    }
+  } else if (percentage >= 60) {
+    return {
+      title: 'Moderate Readiness & Constructive Attitude',
+      badge: `${percentage}% Readiness Index`,
+      advice:
+        'You demonstrate a constructive attitude toward mathematics and believe in your capacity to improve. However, occasional hesitation or anxiety may arise when encountering unfamiliar question formats.',
+      tips: [
+        'Break complex problems into smaller, manageable sub-steps to reduce anxiety.',
+        'Normalize making mistakes—in mathematics, errors are valuable indicators of where learning happens.',
+        'Ask questions promptly during class or review whenever a concept feels ambiguous.',
+      ],
+    }
+  } else {
+    return {
+      title: 'High Math Anxiety & Support Needed',
+      badge: `${percentage}% Readiness Index`,
+      advice:
+        'Your responses indicate heightened mathematics anxiety, hesitation, or self-doubt. It is important to know that mathematical ability is not fixed—it develops continuously with the right strategies and encouragement.',
+      tips: [
+        'Practice relaxation techniques such as slow breathing before starting a math test or homework.',
+        'Begin each study session with accessible, straightforward exercises to build positive momentum and confidence.',
+        'Focus on personal improvement and progress rather than comparing your speed with others.',
+      ],
+    }
+  }
+}
+
+/**
+ * Generates tailored advice based on topic post-test percentage score
+ */
+export function getPostTestAdviceByPercentage(percentage: number): {
+  badge: string
+  title: string
+  advice: string
+  tier: 'mastered' | 'review' | 'needed'
+} {
+  if (percentage >= 80) {
+    return {
+      tier: 'mastered',
+      badge: `${percentage}% Score • Remediation Successful`,
+      title: 'Remedial Mastery Achieved',
+      advice:
+        'Great job! You have successfully mastered these concepts after reviewing the video tutorials and practicing your problem solving.',
+    }
+  } else if (percentage >= 60) {
+    return {
+      tier: 'review',
+      badge: `${percentage}% Score • Progress Made`,
+      title: 'Approaching Full Mastery',
+      advice:
+        'Good progress! You have resolved several misconceptions. Consider re-watching the specific video tutorials and retaking the missed problems.',
+    }
+  } else {
+    return {
+      tier: 'needed',
+      badge: `${percentage}% Score • Further Review Needed`,
+      title: 'Additional Review Recommended',
+      advice:
+        'You still have some learning gaps. Replay the recommended video tutorials slowly, inspect the worked step-by-step solutions below, and retry.',
+    }
+  }
+}
+
+/**
+ * Generates concise step-by-step mathematical explanations for missed questions
+ */
+export function getQuestionExplanation(
+  question: string,
+  answer: string,
+  topic: string,
+  skill: CognitiveSkill
+): string {
+  const qLower = question.toLowerCase()
+
+  if (qLower.includes('polygon with five sides')) {
+    return 'A polygon with 5 sides and 5 interior angles is called a pentagon.'
+  }
+  if (qLower.includes('polygon with six sides')) {
+    return 'A polygon with 6 sides and 6 interior angles is called a hexagon.'
+  }
+  if (qLower.includes('sides does an octagon')) {
+    return 'An octagon has 8 sides, 8 vertices, and 8 interior angles.'
+  }
+  if (qLower.includes('sides does a decagon')) {
+    return 'A decagon has 10 sides, 10 vertices, and 10 interior angles.'
+  }
+  if (
+    qLower.includes('convert') &&
+    (qLower.includes('meter') || qLower.includes('gram') || qLower.includes('liter'))
+  ) {
+    return `Standard metric conversion: apply the appropriate conversion factor (1 km = 1,000 m; 1 kg = 1,000 g; 1 L = 1,000 mL). Correct result: ${answer}.`
+  }
+  if (
+    qLower.includes('commission') ||
+    qLower.includes('discount') ||
+    qLower.includes('sales tax') ||
+    qLower.includes('interest')
+  ) {
+    return `Apply the percentage formula: multiply the base quantity by the rate (in decimal or fractional form). Correct result: ${answer}.`
+  }
+  if (qLower.includes('interior angle') && qLower.includes('regular')) {
+    return `Formula for each interior angle of a regular n-sided polygon: ((n - 2) * 180°) / n. Correct value: ${answer}.`
+  }
+  if (qLower.includes('volume of a cylinder') || qLower.includes('cylinder')) {
+    return `Cylinder volume formula: V = π * r² * h. Using the given radius and height yields ${answer}.`
+  }
+  if (qLower.includes('pyramid') && qLower.includes('volume')) {
+    return `Pyramid volume formula: V = (1/3) * Base Area * height. Correct volume: ${answer}.`
+  }
+  if (
+    qLower.includes('chips') ||
+    qLower.includes('zero pair') ||
+    qLower.includes('number line')
+  ) {
+    return `Integer model rules: positive and negative units combine into zero pairs. The net remaining value is ${answer}.`
+  }
+  if (skill === 'Remembering') {
+    return `Recall of mathematical definitions and facts: the canonical correct term or value is "${answer}".`
+  }
+  if (skill === 'Understanding') {
+    return `Conceptual reasoning: analyzing the properties and definitions of this topic leads to "${answer}".`
+  }
+  return `Procedural calculation: follow the step-by-step arithmetic or algebraic operations to arrive at the solution: ${answer}.`
+}
+
+/**
+ * Grade diagnostic test with TOS, percentage advice, and remedial practice questions based on missed items
  */
 export function gradeDiagnostic(
   assessment: Assessment,
@@ -245,6 +513,7 @@ export function gradeDiagnostic(
       total: number
       cognitiveSkills: Set<CognitiveSkill>
       youtubeLinks: string[]
+      missedQuestions: RemedialQuestion[]
     }
   > = {}
 
@@ -269,12 +538,25 @@ export function gradeDiagnostic(
         total: 0,
         cognitiveSkills: new Set(),
         youtubeLinks: q.youtubeLinks ?? [],
+        missedQuestions: [],
       }
     }
     topicMap[q.topic].total += 1
     topicMap[q.topic].cognitiveSkills.add(skill)
+
     if (isCorrect) {
       topicMap[q.topic].correct += 1
+    } else {
+      // Record missed question for targeted remedial practice
+      topicMap[q.topic].missedQuestions.push({
+        id: q.id,
+        question: q.question,
+        answer: q.answer,
+        cognitiveSkill: skill,
+        userAnswer: rawInput,
+        topic: q.topic,
+        explanation: getQuestionExplanation(q.question, q.answer, q.topic, skill),
+      })
     }
 
     return {
@@ -337,28 +619,22 @@ export function gradeDiagnostic(
     statementTopicMap[stmt.topic] = likertResponses[stmt.id] ?? 3
   })
 
-  // Format Topic Results with Severity Levels & Quadrant Comparison
+  // Format Topic Results without "difficulty" labels, focusing on interventions and practice
   const topicResults: TopicAssessmentResult[] = Object.entries(topicMap).map(
     ([topic, stats]) => {
       const topicPct = Math.round((stats.correct / stats.total) * 100)
       const perceivedRating = statementTopicMap[topic] ?? 3
       const perceivedInterpretation = getLikertInterpretation(perceivedRating)
 
-      // Severity Level:
-      // Critical (<50%), Moderate (50-74%), Mastered (>=75%)
-      let severity: SeverityLevel = 'Mastered'
-      let severityLabel = 'Low Severity (Mastered)'
-      if (topicPct < 50) {
-        severity = 'Critical'
-        severityLabel = 'High Severity (Critical Gap)'
-      } else if (topicPct < 75) {
-        severity = 'Moderate'
-        severityLabel = 'Moderate Severity (Needs Review)'
-      }
+      const isMastered = topicPct >= 75
+      const status: 'Mastered' | 'Review Recommended' = isMastered
+        ? 'Mastered'
+        : 'Review Recommended'
+      const statusLabel = isMastered
+        ? 'Benchmark Met (≥75%)'
+        : 'Review Recommended (<75%)'
 
-      // Likert vs Actual Quadrant Analysis:
-      // High confidence = rating >= 3.5, Low confidence = rating < 3.5
-      // High performance = topicPct >= 75%, Low performance = topicPct < 75%
+      // Likert vs Actual Quadrant Analysis
       let quadrant: 'Blind Spot' | 'Underconfident' | 'Confirmed Learning Gap' | 'Mastered Competency'
       let quadrantAnalysis = ''
       let studyTip = ''
@@ -368,7 +644,7 @@ export function gradeDiagnostic(
         quadrantAnalysis =
           'You felt confident, but the diagnostic performance indicates gaps in execution or underlying misconceptions.'
         studyTip =
-          'Review the provided YouTube lesson carefully, solve step-by-step example problems, and verify calculations before submitting.'
+          'Review the provided YouTube lesson carefully, solve the practice problems below step-by-step, and verify calculations.'
       } else if (perceivedRating < 3.5 && topicPct >= 75) {
         quadrant = 'Underconfident'
         quadrantAnalysis =
@@ -378,9 +654,9 @@ export function gradeDiagnostic(
       } else if (perceivedRating < 3.5 && topicPct < 75) {
         quadrant = 'Confirmed Learning Gap'
         quadrantAnalysis =
-          'Your perceived difficulty aligns with your test score. This topic represents a high-priority area for remedial intervention.'
+          'Your perceived confidence aligns with your test score. This topic represents a high-priority area for remedial intervention.'
         studyTip =
-          'Start with foundational concepts from the video tutorial. Break problems into smaller steps and practice daily drills.'
+          'Start with foundational concepts from the video tutorial. Work through the remedial practice problems below.'
       } else {
         quadrant = 'Mastered Competency'
         quadrantAnalysis =
@@ -394,8 +670,8 @@ export function gradeDiagnostic(
         correct: stats.correct,
         total: stats.total,
         percentage: topicPct,
-        severity,
-        severityLabel,
+        status,
+        statusLabel,
         cognitiveSkills: Array.from(stats.cognitiveSkills),
         perceivedRating,
         perceivedInterpretation,
@@ -403,11 +679,12 @@ export function gradeDiagnostic(
         quadrantAnalysis,
         studyTip,
         youtubeLinks: stats.youtubeLinks,
+        missedQuestions: stats.missedQuestions,
       }
     }
   )
 
-  // Sort topic results: Critical first, then Moderate, then Mastered
+  // Sort topic results: topics with missed items first, then mastered topics
   topicResults.sort((a, b) => a.percentage - b.percentage)
 
   return {
@@ -419,6 +696,7 @@ export function gradeDiagnostic(
     topicResults,
     likertResponses,
     averageLikertRating,
+    percentageAdvice: getAdviceByPercentage(percentage),
     userAnswers,
   }
 }

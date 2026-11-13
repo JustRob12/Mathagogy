@@ -6,6 +6,7 @@ import {
   scoreLikert,
   type LikertResult,
   LIKERT_RESPONSE_SCALE,
+  getLikertAdviceByPercentage,
 } from '@/lib/assessments'
 import { createClient } from '@/lib/supabase/client'
 
@@ -130,6 +131,46 @@ export default function LikertCardQuiz({
         </div>
 
         <div className="p-5 sm:p-8 space-y-6">
+          {/* Advice based on Readiness Percentage */}
+          {(() => {
+            const readinessPct = Math.round((result.totalAverage / 5) * 100)
+            const likertAdvice = getLikertAdviceByPercentage(readinessPct)
+            return (
+              <div className="p-5 sm:p-6 rounded-2xl bg-teal-50/70 border border-teal-200 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-teal-700 text-white flex items-center justify-center font-bold text-xs">
+                      TIP
+                    </div>
+                    <div>
+                      <h4 className="text-sm sm:text-base font-bold text-slate-900">
+                        Personalized Advice (Based on Score: {readinessPct}%)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">{likertAdvice.title}</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-black px-3 py-1 rounded-full bg-teal-200 text-teal-900 self-start sm:self-auto">
+                    {likertAdvice.badge}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+                  {likertAdvice.advice}
+                </p>
+                <div className="bg-white rounded-xl p-3.5 border border-teal-100 space-y-1.5 text-xs text-slate-700">
+                  <span className="font-bold text-teal-900">Actionable Strategies:</span>
+                  <ul className="space-y-1 pl-1">
+                    {likertAdvice.tips.map((tip, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <span className="text-teal-600 font-bold">•</span>
+                        <span>{tip}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )
+          })()}
+
           <h3 className="text-base sm:text-lg font-bold text-slate-900">
             Dimension Breakdown & Interpretations
           </h3>

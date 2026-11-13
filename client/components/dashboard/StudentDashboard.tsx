@@ -56,9 +56,58 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
 
       if (error) {
         console.warn('Could not load assessment attempts:', error.message)
-      } else if (data) {
-        setAttempts(data as AssessmentAttempt[])
       }
+
+      // Also fetch from dedicated post_test_attempts table if available
+      let postTestsData: any[] = []
+      try {
+        const { data: ptData, error: ptError } = await supabase
+          .from('post_test_attempts')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('completed_at', { ascending: false })
+
+        if (!ptError && ptData) {
+          postTestsData = ptData.map((pt) => ({
+            ...pt,
+            test_type: 'post_test' as const,
+          }))
+        }
+      } catch (ptCatch) {
+        // Table may not yet be created if SQL hasn't been executed
+      }
+
+      // Also fetch from dedicated retake_attempts table if available
+      let retakesData: any[] = []
+      try {
+        const { data: rtData, error: rtError } = await supabase
+          .from('retake_attempts')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('completed_at', { ascending: false })
+
+        if (!rtError && rtData) {
+          retakesData = rtData.map((rt) => ({
+            ...rt,
+            test_type: 'retake' as const,
+          }))
+        }
+      } catch (rtCatch) {
+        // Table may not yet be created if SQL hasn't been executed
+      }
+
+      const existingIds = new Set(((data as any[]) ?? []).map((a) => a.id))
+      const uniquePostTests = postTestsData.filter((pt) => !existingIds.has(pt.id))
+      const uniqueRetakes = retakesData.filter((rt) => !existingIds.has(rt.id))
+      const combined = [
+        ...((data as any[]) ?? []),
+        ...uniquePostTests,
+        ...uniqueRetakes,
+      ].sort(
+        (a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
+      )
+
+      setAttempts(combined as AssessmentAttempt[])
     } catch (e) {
       console.warn('Database fetch error:', e)
     } finally {
@@ -355,7 +404,22 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
               {/* Term Diagnostic Tests */}
               {gradeAssessments.map((assessment) => {
                 const termAttempts = attempts.filter(
-                  (a) => a.grade === assessment.grade && a.term === assessment.term
+                  (a) =>
+                    a.grade === assessment.grade &&
+                    a.term === assessment.term &&
+                    (a.test_type === 'diagnostic' || !a.test_type)
+                )
+                const termRetakes = attempts.filter(
+                  (a) =>
+                    a.grade === assessment.grade &&
+                    a.term === assessment.term &&
+                    a.test_type === 'retake'
+                )
+                const termPostTests = attempts.filter(
+                  (a) =>
+                    a.grade === assessment.grade &&
+                    a.term === assessment.term &&
+                    a.test_type === 'post_test'
                 )
                 const latest = termAttempts[0]
                 const theme =
@@ -494,6 +558,86 @@ export default function StudentDashboard({ user, profile }: StudentDashboardProp
                       ) : (
                         <div className="p-3 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center text-xs text-slate-400 font-medium">
                           No previous takes yet. Take your first diagnostic test!
+                        </div>
+                      )}
+
+                      {/* Remedial Retakes (Study Verification) */}
+                      {termRetakes.length > 0 && (
+                        <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1">
+                            <svg className="w-3 h-3 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>Remedial Retakes ({termRetakes.length})</span>
+                          </p>
+                          <div className="space-y-1.5 max-h-36 overflow-y-auto pr-0.5">
+                            {termRetakes.map((rt) => {
+                              const improved = (rt.improvement_percentage ?? 0) > 0
+                              return (
+                                <div
+                                  key={rt.id}
+                                  className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-100 flex items-center justify-between text-[11px] gap-2"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-extrabold text-slate-900">
+                                        Retake: {rt.percentage}%
+                                      </span>
+                                      <span className="text-[10px] text-slate-500">
+                                        (First: {rt.initial_percentage ?? 0}%)
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      {new Date(rt.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} • {rt.score}/{rt.total_questions} missed solved
+                                    </p>
+                                  </div>
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full font-black text-[10px] shrink-0 ${
+                                      improved
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                        : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                    }`}
+                                  >
+                                    {improved ? `+${rt.improvement_percentage}% Improved` : `${rt.improvement_percentage ?? 0}%`}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Topic Post-Tests completed for this term */}
+                      {termPostTests.length > 0 && (
+                        <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1">
+                            <svg className="w-3 h-3 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>Topic Post-Tests ({termPostTests.length})</span>
+                          </p>
+                          <div className="space-y-1 max-h-32 overflow-y-auto pr-0.5">
+                            {termPostTests.map((pt) => (
+                              <div
+                                key={pt.id}
+                                className="p-2 rounded-xl bg-indigo-50/60 border border-indigo-100 flex items-center justify-between text-[11px]"
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <p className="font-bold text-slate-800 truncate">{pt.topic}</p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {new Date(pt.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} • {pt.score}/{pt.total_questions} correct
+                                  </p>
+                                </div>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full font-black text-[10px] shrink-0 ${
+                                    pt.passed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {pt.percentage}% {pt.passed ? 'Passed' : 'Review'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
 
